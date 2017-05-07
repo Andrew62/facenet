@@ -3,21 +3,20 @@ import tensorflow as tf
 from functools import partial
 from inception_preprocessing import preprocess_image
 
-def batch_producer(filepath, n_classes, **kwargs):
+
+def batch_producer(filepaths, **kwargs):
     """Function for loading batches of images and
     and labels from a csv *without* a header. CSV files
     must be in the format of
-        class_code,/abs/path/to/img
-        class_code,/abs/path/to/img
-        class_code,/abs/path/to/img
+        /path/to/anchor/img,/path/to/positive/img,class_id
+        /path/to/anchor/img,/path/to/positive/img,class_id
+        /path/to/anchor/img,/path/to/positive/img,class_id
 
     Parameters
     -----------
-    filepath : list
+    filepaths : list
         list of paths to csv files. Even if just using one file, it must
         be a list. For example ['/path/to/file.csv']
-    n_classes : int
-        number of classes to be used in one-hot encoding
     batch_size : (kwarg) int
         number of samples per batch. Default is 4
     img_shape : (kwarg) tuple
@@ -29,6 +28,10 @@ def batch_producer(filepath, n_classes, **kwargs):
         Default is True
     num_threads : (kwarg) int
         number of threads to use for the loader. Default is 4
+    
+    Returns
+    -------
+    anchor_batch, positive_batch, class_id_batch
     """
     batch_size = kwargs.pop("batch_size", 4)
     img_shape = kwargs.pop("image_shape", (224, 224, 3))
@@ -36,7 +39,7 @@ def batch_producer(filepath, n_classes, **kwargs):
     is_training = kwargs.pop("is_trianing", True)
 
     # loads a series of text files
-    filename_queue = tf.train.string_input_producer(filepath)
+    filename_queue = tf.train.string_input_producer(filepaths)
 
     # used to read each text file line by line
     reader = tf.TextLineReader()
@@ -47,17 +50,17 @@ def batch_producer(filepath, n_classes, **kwargs):
     # split out the csv. Defaults to returning strings. Input for this network
     # will be two images of the same identity and we'll randomly sample at
     # within a minibatch for a "hard" negative
-    fp1, fp2, class_id = tf.decode_csv(record, record_defaults=[[tf.string], [tf.string], [tf.int64]])
+    fp1, fp2, class_id = tf.decode_csv(record, record_defaults=[[""], [""], [""]])
     read_images = partial(read_one_image, is_training=is_training, image_shape=img_shape)
-    content = tf.map_fn(read_images, [fp1, fp2])
-    content.append(class_id)
-    # load batches of images all multithreaded like
-    class_batch, img_batch = tf.train.shuffle_batch(content,
-                                                    batch_size=batch_size,
-                                                    capacity=batch_size * 4,
-                                                    num_threads=num_threads,
-                                                    min_after_dequeue=batch_size * 2)
-    return img_batch
+    content = [read_images(fp1), read_images(fp2), class_id]
+    # load batches of images multithreaded. Use tf.stack and tf.unstack to push
+    # pairs through
+    anchor_batch, positive_batch, class_id_batch = tf.train.shuffle_batch(content,
+                                                                          batch_size=batch_size,
+                                                                          capacity=batch_size * 4,
+                                                                          num_threads=num_threads,
+                                                                          min_after_dequeue=batch_size * 2)
+    return anchor_batch, positive_batch, class_id_batch
 
 
 def read_one_image(fname, **kwargs):
