@@ -1,5 +1,6 @@
 FROM nvidia/cuda:8.0-cudnn5-devel
 
+# originally stolen from Craig. Modified for my needs
 MAINTAINER Craig Citro <craigcitro@google.com>
 
 # Pick up some TF dependencies
@@ -57,6 +58,7 @@ ENV LD_LIBRARY_PATH "/cudnn/cuda/lib64:/cudnn/cuda/include:"$LD_LIBRARY_PATH
 
 # Install TensorFlow GPU version.
 RUN pip install tensorflow-gpu
+
 # Set up our notebook config.
 COPY jupyter_notebook_config.py /root/.jupyter/
 
@@ -70,9 +72,3 @@ COPY run_jupyter.sh /
 EXPOSE 6006
 # IPython
 EXPOSE 8888
-
-RUN mkdir /notebooks
-
-WORKDIR "/notebooks"
-
-CMD ["/run_jupyter.sh"]
