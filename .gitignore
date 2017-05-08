@@ -2,3 +2,4 @@ fixtures/
 checkpoints/
 .idea/
 sync.*
+__pycache__/

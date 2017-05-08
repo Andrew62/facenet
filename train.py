@@ -1,4 +1,5 @@
 
+import helper
 import numpy as np
 import tensorflow as tf
 from data import batch_producer
@@ -8,12 +9,13 @@ from loss import loss_func, get_negatives
 
 input_files = ["fixtures/faces.csv"]
 out_dir = "checkpoints/inception_v2"
-batch_size = 40
+batch_size = 65
 embedding_size = 128
 is_training = True
 training_steps = int(5e4)
-learning_rate = 1e-3
+learning_rate = 1e-1
 
+print("Builing graph")
 graph = tf.Graph()
 with graph.as_default():
     anchors, positives, class_id = batch_producer(input_files, batch_size=batch_size)
@@ -35,10 +37,13 @@ with graph.as_default():
     saver = tf.train.Saver(slim.get_model_variables(),
                            keep_checkpoint_every_n_hours=1)
     merged = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter(out_dir + "/train_summary", graph=graph)
+    summary_writer = tf.summary.FileWriter(out_dir + "/train_summary/" + helper.get_current_timestamp()
+                                           , graph=graph)
 
-
-with tf.Session(graph=graph).as_default() as sess:
+print("Starting session")
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
+with tf.Session(graph=graph, config=config).as_default() as sess:
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(coord=coord)
     sess.run(init_op)
@@ -54,17 +59,18 @@ with tf.Session(graph=graph).as_default() as sess:
         feed_dict = {
             negative_vec: negs
         }
-        if global_step % 10 == 0:
+        if global_step % 50 == 0:
             summary, _, loss = sess.run([merged, optimizer, losses], feed_dict=feed_dict)
             summary_writer.add_summary(summary, global_step)
             print("global step: {0:,}\tloss: {1:0.5f}".format(global_step, loss))
         else:
             sess.run(optimizer, feed_dict=feed_dict)
 
-        if (global_step + 1) % 1000 == 0:
+        if global_step % 1000 == 0:
             saver.save(sess, out_dir + "/facenet", global_step=global_step)
         global_step += 1
 
     saver.save(sess, out_dir + "/facenet", global_step=global_step)
     coord.request_stop()
     coord.join(threads)
+print("Done")
