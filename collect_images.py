@@ -2,7 +2,11 @@ import os
 import csv
 from itertools import combinations
 
+# input directory where each subfolder is the unique name of the
+# person. Will look for jpegs, gifs, and pngs
 base_dir = "fixtures/faces"
+
+# output csv for the training input producer
 out_csv = "fixtures/faces.csv"
 
 # store all images by class
