@@ -12,8 +12,9 @@ out_dir = "checkpoints/inception_v2"
 batch_size = 65
 embedding_size = 128
 is_training = True
-training_steps = int(5e4)
 learning_rate = 1e-1
+
+checkpoint = tf.train.latest_checkpoint(out_dir)
 
 print("Builing graph")
 graph = tf.Graph()
@@ -46,29 +47,36 @@ config.gpu_options.allow_growth = True
 with tf.Session(graph=graph, config=config).as_default() as sess:
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(coord=coord)
-    sess.run(init_op)
+    if checkpoint:
+        print("Loading checkpoint: {}".format(checkpoint))
+        saver.restore(sess, checkpoint)
+    else:
+        print("Initializing")
+        sess.run(init_op)
     global_step = 0
-    skips = 0
-    while global_step < training_steps:
-        # if all the classes are the same we'll skip this step
-        c_ids = sess.run(class_id)
-        if np.unique(c_ids).shape[0] == 1:
-            continue
-        a, p = sess.run([anchor_vec, positive_vec])
-        negs = get_negatives(a, p, c_ids)
-        feed_dict = {
-            negative_vec: negs
-        }
-        if global_step % 50 == 0:
-            summary, _, loss = sess.run([merged, optimizer, losses], feed_dict=feed_dict)
-            summary_writer.add_summary(summary, global_step)
-            print("global step: {0:,}\tloss: {1:0.5f}".format(global_step, loss))
-        else:
-            sess.run(optimizer, feed_dict=feed_dict)
+    try:
+        while True:
+            # if all the classes are the same we'll skip this step
+            c_ids = sess.run(class_id)
+            if np.unique(c_ids).shape[0] == 1:
+                continue
+            a, p = sess.run([anchor_vec, positive_vec])
+            negs = get_negatives(a, p, c_ids)
+            feed_dict = {
+                negative_vec: negs
+            }
+            if global_step % 50 == 0:
+                summary, _, loss = sess.run([merged, optimizer, losses], feed_dict=feed_dict)
+                summary_writer.add_summary(summary, global_step)
+                print("global step: {0:,}\tloss: {1:0.5f}".format(global_step, loss))
+            else:
+                sess.run(optimizer, feed_dict=feed_dict)
 
-        if global_step % 1000 == 0:
-            saver.save(sess, out_dir + "/facenet", global_step=global_step)
-        global_step += 1
+            if global_step % 1000 == 0:
+                saver.save(sess, out_dir + "/facenet", global_step=global_step)
+            global_step += 1
+    except Exception as e:
+        print(e)
 
     saver.save(sess, out_dir + "/facenet", global_step=global_step)
     coord.request_stop()
