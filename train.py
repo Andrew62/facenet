@@ -8,15 +8,19 @@ from tensorflow.contrib import slim
 from loss import loss_func, get_negatives
 
 input_files = ["fixtures/faces.csv"]
-out_dir = "checkpoints/inception_v2"
+checkpoint_dir = "checkpoints/inception_v2/" + helper.get_current_timestamp()
+summary_dir = "checkpoints/inception_v2/trian_summaries/" + helper.get_current_timestamp()
 batch_size = 65
 embedding_size = 128
 is_training = True
-learning_rate = 1e-1
+learning_rate = 1e-3
 
-checkpoint = tf.train.latest_checkpoint(out_dir)
+for d in [summary_dir, checkpoint_dir]:
+    helper.check_dir(d)
 
-print("Builing graph")
+checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+
+print("Building graph")
 graph = tf.Graph()
 with graph.as_default():
     anchors, positives, class_id = batch_producer(input_files, batch_size=batch_size)
@@ -26,7 +30,7 @@ with graph.as_default():
         prelogits, endpoints = inception_v2.inception_v2(combined,
                                                          num_classes=embedding_size,
                                                          is_training=is_training)
-    l2 = tf.nn.l2_normalize(prelogits, 0)
+    l2 = tf.nn.l2_normalize(prelogits, dim=0)
     anchor_vec = tf.slice(l2, [0, 0], [batch_size, -1])
     positive_vec = tf.slice(l2, [batch_size, 0], [-1, -1])
     # we'll get these offline
@@ -38,8 +42,8 @@ with graph.as_default():
     saver = tf.train.Saver(slim.get_model_variables(),
                            keep_checkpoint_every_n_hours=1)
     merged = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter(out_dir + "/train_summary/" + helper.get_current_timestamp()
-                                           , graph=graph)
+    summary_writer = tf.summary.FileWriter(summary_dir,
+                                           graph=graph)
 
 print("Starting session")
 config = tf.ConfigProto()
@@ -73,12 +77,12 @@ with tf.Session(graph=graph, config=config).as_default() as sess:
                 sess.run(optimizer, feed_dict=feed_dict)
 
             if global_step % 1000 == 0:
-                saver.save(sess, out_dir + "/facenet", global_step=global_step)
+                saver.save(sess, checkpoint_dir + '/facenet', global_step=global_step)
             global_step += 1
     except Exception as e:
         print(e)
 
-    saver.save(sess, out_dir + "/facenet", global_step=global_step)
+    saver.save(sess, checkpoint_dir + '/facenet', global_step=global_step)
     coord.request_stop()
     coord.join(threads)
 print("Done")
