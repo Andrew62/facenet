@@ -74,8 +74,8 @@ with tf.Session(graph=graph, config=config).as_default() as sess:
                 summary_writer.add_summary(summary, global_step)
                 print("global step: {0:,}\tloss: {1:0.5f}".format(global_step, loss))
             else:
-                sess.run(optimizer, feed_dict=feed_dict)
-
+                _, loss = sess.run([optimizer, loss], feed_dict=feed_dict)
+            print("global step: {0:,}\tloss: {1:0.5f}".format(global_step, loss))
             if global_step % 1000 == 0:
                 saver.save(sess, checkpoint_dir + '/facenet', global_step=global_step)
             global_step += 1
