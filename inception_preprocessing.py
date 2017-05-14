@@ -262,8 +262,8 @@ def preprocess_for_eval(image, height, width,
       image = tf.image.resize_bilinear(image, [height, width],
                                        align_corners=False)
       image = tf.squeeze(image, [0])
-    image = tf.sub(image, 0.5)
-    image = tf.mul(image, 2.0)
+    image = tf.subtract(image, 0.5)
+    image = tf.multiply(image, 2.0)
     return image
 
 
