@@ -13,7 +13,7 @@ summary_dir = "checkpoints/inception_v2/trian_summaries/" + helper.get_current_t
 batch_size = 65
 embedding_size = 128
 is_training = True
-learning_rate = 1e-3
+learning_rate = 0.1
 
 for d in [summary_dir, checkpoint_dir]:
     helper.check_dir(d)
