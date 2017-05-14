@@ -1,5 +1,6 @@
 fixtures/
 checkpoints/
 .idea/
-sync.*
+*.sh
 __pycache__/
+embeddings/
