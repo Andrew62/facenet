@@ -31,7 +31,7 @@ with open(out_csv, 'w', newline='') as target:
     writer = csv.writer(target)
     classes = sorted(images.keys())
     for name, fps in images.items():
-        for anchor, positive in combinations(fps, 2):
-            writer.writerow([anchor, positive, classes.index(name)])
+        for fp in fps:
+            writer.writerow([fp, classes.index(name)])
 
 print("done")
