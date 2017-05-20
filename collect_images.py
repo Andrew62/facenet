@@ -1,13 +1,12 @@
 import os
-import csv
-from itertools import combinations
+import json
 
 # input directory where each subfolder is the unique name of the
 # person. Will look for jpegs, gifs, and pngs
 base_dir = "fixtures/faces"
 
 # output csv for the training input producer
-out_csv = "fixtures/faces.csv"
+out_json = "fixtures/faces.json"
 
 # store all images by class
 images = {}
@@ -27,11 +26,7 @@ for d, _, files in os.walk(base_dir):
 
 # write out csv of all combinations of positives. Later we'll
 # sample negatives from within a minibatch
-with open(out_csv, 'w', newline='') as target:
-    writer = csv.writer(target)
-    classes = sorted(images.keys())
-    for name, fps in images.items():
-        for fp in fps:
-            writer.writerow([fp, classes.index(name)])
+with open(out_json, 'w', newline='') as target:
+    json.dump(images, target, indent=2)
 
 print("done")
