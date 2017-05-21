@@ -9,5 +9,5 @@ def loss_func(anchors, positives, negatives, alpha=0.2):
     """
     positive_dist = tf.pow(tf.norm(anchors - positives, axis=0, ord=2), 2)
     negative_dist = tf.pow(tf.norm(anchors - negatives, axis=0, ord=2), 2)
-    return tf.maximum(tf.reduce_sum(positive_dist - negative_dist + alpha), 0)
-
+    # return tf.maximum(tf.reduce_sum(positive_dist - negative_dist + alpha), 0)
+    return tf.reduce_sum(positive_dist - negative_dist + alpha)
