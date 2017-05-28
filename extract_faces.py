@@ -22,10 +22,15 @@ class FaceFinder(object):
                 box = [rectangle.left(), rectangle.top(), rectangle.right(), rectangle.bottom()]
                 yield image.crop(box)
 
+    @staticmethod
+    def get_fname_no_ext(fp):
+        return os.path.splitext(os.path.basename(fp))[0]
+
     def write_face_chips(self, image_fp, out_dir, **kwargs):
         n = kwargs.pop("n", 1)
+        base_name = self.get_fname_no_ext(image_fp)
         for idx, chip in enumerate(self.get_faces(image_fp, n=n)):
-            out_fp = os.path.join(out_dir, "{}.jpg".format(idx + 1))
+            out_fp = os.path.join(out_dir, "{0}_{1}.jpg".format(base_name, idx + 1))
             chip.save(out_fp)
 
 
