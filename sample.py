@@ -1,8 +1,5 @@
 import numpy as np
-
-
-def l2_squared_distance(a, b):
-    return np.power(np.linalg.norm(a - b, axis=0), 2)
+from loss import l2_squared_distance
 
 
 def get_triplets(image_paths, embeddings, class_ids):
@@ -31,6 +28,7 @@ def get_triplets(image_paths, embeddings, class_ids):
                 best_pos = pos_idx
                 best_neg = neg_idx
                 best_anchor = anchor_idx
-        out_fps.extend([class_fps[best_anchor], class_fps[best_pos], out_of_class_fps[best_neg]])
+        if best_neg is not None and best_neg is not None:
+            out_fps.extend([class_fps[best_anchor], class_fps[best_pos], out_of_class_fps[best_neg]])
 
     return np.asarray(out_fps)
