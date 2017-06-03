@@ -1,6 +1,7 @@
 
 import os
 import time
+import sprite
 import helper
 import numpy as np
 import tensorflow as tf
@@ -11,11 +12,15 @@ from evaluation import evaluate
 from networks import inception_v2
 from tensorflow.contrib import slim
 from data import Dataset, read_one_image
+from tensorflow.contrib.tensorboard.plugins import projector
 
 # TODO make these command line args
 input_file = "fixtures/faces.json"
-checkpoint_dir = "checkpoints/inception_v2/" + helper.get_current_timestamp()
-summary_dir = "checkpoints/inception_v2/trian_summaries/" + helper.get_current_timestamp()
+timestamp = helper.get_current_timestamp()
+checkpoint_dir = "checkpoints/inception_v2/" + timestamp
+out_tensorboard_metadata = os.path.join(checkpoint_dir, "metadata.tsv")
+out_sprite_image = os.path.join(checkpoint_dir, "sprite.jpeg")
+
 metrics_file = os.path.join(checkpoint_dir, "validation_metrics.json")
 batch_size = 64
 embedding_size = 128
@@ -26,9 +31,9 @@ identities_per_batch = 40
 n_images_per = 25
 n_validation = 3000
 thresholds = np.arange(0, 4, 0.1)
+sprite_thumbnail_size = [28, 28]
 
-for d in [summary_dir, checkpoint_dir]:
-    helper.check_dir(d)
+helper.check_dir(checkpoint_dir)
 
 checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
 
@@ -44,29 +49,35 @@ with graph.as_default():
     with slim.arg_scope(inception_v2.inception_v2_arg_scope()):
         prelogits, endpoints = inception_v2.inception_v2(images,
                                                          num_classes=embedding_size)
-    embeddings = tf.nn.l2_normalize(prelogits, 0)
+    embeddings = tf.nn.l2_normalize(prelogits, 0, name="embeddings")
+
+    # don't run this until we've already done a batch pass of faces. We
+    # compute the triplets offline, stack, and run through again
     anchors, positives, negatives = tf.unstack(tf.reshape(embeddings, [-1, 3, embedding_size]), axis=1)
     losses = loss_func(anchors, positives, negatives)
 
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(losses)
     tf.summary.scalar("Loss", losses)
+
     init_op = tf.global_variables_initializer()
-    saver = tf.train.Saver(slim.get_model_variables())
+    saver = tf.train.Saver(tf.trainable_variables())
     merged = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter(summary_dir,
+    summary_writer = tf.summary.FileWriter(checkpoint_dir,
                                            graph=graph)
 
 print("Starting session")
+
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
 with tf.Session(graph=graph, config=config).as_default() as sess:
     if checkpoint:
-        print("Loading checkpoint: {}".format(checkpoint))
+        global_step = int(checkpoint.split("-")[-1])
+        print("Loading checkpoint: {0} Global step: {1:,}".format(checkpoint, global_step))
         saver.restore(sess, checkpoint)
     else:
         print("Initializing")
         sess.run(init_op)
-    global_step = 0
+        global_step = 0
     start = time.time()
     dataset = Dataset(input_file,
                       n_identities_per=identities_per_batch,
@@ -101,14 +112,27 @@ with tf.Session(graph=graph, config=config).as_default() as sess:
             }
             global_step += 1
             batch_per_sec = (time.time() - start) / global_step
-            if global_step % 100 == 0:
+            if global_step % 10 == 0:
                 summary, _, loss = sess.run([merged, optimizer, losses], feed_dict=feed_dict)
                 summary_writer.add_summary(summary, global_step)
+
             else:
                 _, loss = sess.run([optimizer, losses], feed_dict=feed_dict)
             print("global step: {0:,}\tloss: {1:0.3f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec))
-            if global_step % 1000 == 0:
+            if global_step % 10 == 0:
                 saver.save(sess, checkpoint_dir + '/facenet', global_step=global_step)
+
+                # projector for tensorboard
+                projector_config = projector.ProjectorConfig()
+                vis_embeddings = projector_config.embeddings.add()
+                vis_embeddings.tensor_name = embeddings.name
+                vis_embeddings.metadata_path = out_tensorboard_metadata
+                vis_embeddings.sprite.image_path = out_sprite_image
+                vis_embeddings.sprite.single_image_dim.extend(sprite_thumbnail_size)
+                sprite.sprite_metadata(image_paths, out_tensorboard_metadata)
+                sprite.make_sprite(image_paths, out_sprite_image, sprite_thumbnail_size)
+                projector.visualize_embeddings(summary_writer, projector_config)
+
                 print("Evaluating")
                 start = time.time()
                 evaluation_set = dataset.get_evaluation_batch()
@@ -128,7 +152,7 @@ with tf.Session(graph=graph, config=config).as_default() as sess:
         except KeyboardInterrupt:
             print("Keyboard Interrupt. Exiting.")
             break
-    saver.save(sess, os.path.join(checkpoint_dir, 'facenet'), global_step=global_step)
+    saver.save(sess, os.path.join(checkpoint_dir, 'facenet.ckpt'), global_step=global_step)
     helper.to_json(validation_metrics, metrics_file)
     print("Saved to: {0}".format(checkpoint_dir))
 print("Done")
