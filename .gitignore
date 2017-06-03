@@ -4,3 +4,4 @@ checkpoints/
 *.sh
 __pycache__/
 embeddings/
+.ipynb_checkpoints/
