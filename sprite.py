@@ -38,6 +38,7 @@ def sprite_metadata(file_paths, out_f):
     Write the metadata file for tensorboard
     """
     with open(out_f, "w") as target:
+        target.write("Name\tImage\n")
         for fp in file_paths:
             name = osp.basename(osp.dirname(fp))
-            target.write("{}\n".format(name))
+            target.write("{0}\t{1}\n".format(name, fp))

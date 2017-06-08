@@ -16,7 +16,7 @@ def optimal_threshold(l2_dists, true_labels, thresholds=np.arange(0, 4, 0.1)):
     best_false_accept_rate = float("inf")
     best_threshold = None
     for threshold in thresholds:
-        cutoff = np.where(l2_dists <= threshold, 1.0, 0.0)
+        cutoff = np.where(l2_dists < threshold, 1.0, 0.0)
         ta = cutoff[true_labels == 1]
         val = validation_rate(ta.sum(), true_labels.sum())
         fa = cutoff[true_labels == 0]

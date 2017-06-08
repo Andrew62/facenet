@@ -4,9 +4,9 @@ import time
 import numpy as np
 import tensorflow as tf
 from functools import partial
-from networks import inception_v2
 from argparse import ArgumentParser
 from tensorflow.contrib import slim
+from networks import inception_resnet_v2
 from data import read_one_image, Dataset
 
 
@@ -35,10 +35,10 @@ def main():
                             image_shape=image_shape)
         images = tf.map_fn(read_func, image_paths_ph, dtype=tf.float32)
         # do the network thing here
-        with slim.arg_scope(inception_v2.inception_v2_arg_scope()):
-            prelogits, endpoints = inception_v2.inception_v2(images,
-                                                             num_classes=embedding_size,
-                                                             dropout_keep_prob=1.0)
+        with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
+            prelogits, endpoints = inception_resnet_v2.inception_resnet_v2(images,
+                                                                           num_classes=embedding_size,
+                                                                           dropout_keep_prob=1.0)
         l2 = tf.nn.l2_normalize(prelogits, 0)
         saver = tf.train.Saver(slim.get_model_variables())
 

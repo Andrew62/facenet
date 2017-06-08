@@ -4,7 +4,6 @@ import helper
 import numpy as np
 import tensorflow as tf
 from itertools import combinations
-from inception_preprocessing import preprocess_image
 
 
 def read_one_image(fname, **kwargs):
@@ -30,9 +29,16 @@ def read_one_image(fname, **kwargs):
     content = tf.read_file(fname)
 
     # decode buffer as an image
-    img_raw = tf.image.decode_image(content, channels=img_shape[-1])
+    image = tf.image.decode_image(content, channels=img_shape[-1])
 
-    return preprocess_image(img_raw, img_shape[0], img_shape[1], is_training=is_training)
+    image = tf.image.resize_image_with_crop_or_pad(image, img_shape[0], img_shape[1])
+    if is_training:
+        up_down = tf.random_uniform([], minval=0, maxval=1)
+        image = tf.cond(up_down > 0.5,
+                        lambda: tf.image.flip_up_down(image),
+                        lambda: tf.image.random_flip_left_right(image))
+    image.set_shape(img_shape)
+    return tf.image.per_image_standardization(image)
 
 
 class Dataset(object):
