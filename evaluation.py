@@ -30,6 +30,19 @@ def optimal_threshold(l2_dists, true_labels, thresholds=np.arange(0, 4, 0.1)):
     return best_threshold, best_validation_rate, best_false_accept_rate
 
 
+def precision_recall_f1(pred, gt):
+    # intersection
+    tp = np.logical_and(pred, gt).sum()
+    # union
+    tp_and_fp = np.logical_or(pred, gt).sum()
+    precision = tp / tp_and_fp
+    # false negatives
+    fn = np.logical_and(np.logical_not(pred), gt).sum()
+    recall = tp / (tp + fn)
+    f1 = 2 * ((precision * recall) / (precision + recall))
+    return precision, recall, f1
+
+
 def evaluate(sess, validation_set, image_path_ph, embeddings_op, batch_size=64, thresholds=np.arange(0, 4, 0.1)):
     col0 = validation_set[:, 0]
     col1 = validation_set[:, 1]
@@ -46,8 +59,6 @@ def evaluate(sess, validation_set, image_path_ph, embeddings_op, batch_size=64, 
     l2_dist = l2_squared_distance(col0_embeddings, col1_embeddings, axis=1)
     true_labels = validation_set[:, -1].astype(np.int)
     threshold, val_rate, fa_rate = optimal_threshold(l2_dist, true_labels, thresholds=thresholds)
-    return threshold, val_rate, fa_rate
-
-
-
-
+    pred = np.where(l2_dist < threshold, 1, 0)
+    precision, recall, f1 = precision_recall_f1(pred, true_labels)
+    return threshold, val_rate, fa_rate, precision, recall, f1

@@ -88,7 +88,10 @@ with tf.Session(graph=graph, config=config).as_default() as sess:
         "false_accept_rate": [],
         "true_accept_rate": [],
         "threshold": [],
-        "global_step": []
+        "global_step": [],
+        "precision": [],
+        "recall": [],
+        "f1": []
     }
 
     print("Starting loop")
@@ -124,19 +127,23 @@ with tf.Session(graph=graph, config=config).as_default() as sess:
                 print("Evaluating")
                 start = time.time()
                 evaluation_set = dataset.get_evaluation_batch()
-                threshold, val_rate, fa_rate = evaluate(sess, evaluation_set, image_paths_ph, embeddings,
-                                                        thresholds=thresholds)
+                threshold, val_rate, fa_rate, precision, recall, f1 = evaluate(sess, evaluation_set, image_paths_ph,
+                                                                               embeddings, thresholds=thresholds)
                 validation_metrics["false_accept_rate"].append(fa_rate)
                 validation_metrics["true_accept_rate"].append(val_rate)
                 validation_metrics["threshold"].append(threshold)
                 validation_metrics["global_step"].append(global_step)
+                validation_metrics["precision"].append(precision)
+                validation_metrics["recall"].append(recall)
+                validation_metrics["f1"].append(f1)
+
                 # keep writing to this file so we can see updates. Would be better to add to tensorboard
                 helper.to_json(validation_metrics, metrics_file)
                 elapsed = time.time() - start
-                print("VAL: {0:0.2f}\tFAR: {1:0.2f}\tThreshold: {2:0.2f}\tElapsed time: {3:0.2f} secs".format(val_rate,
-                                                                                                              fa_rate,
-                                                                                                              threshold,
-                                                                                                              elapsed))
+                print("VAL: {0:0.2f}\tFAR: {1:0.2f}\tThreshold: {2:0.2f}\t".format(val_rate, fa_rate, threshold),
+                      "Precision: {0:0.2f}\tRecall: {1:0.2f}\tF-1: {2:0.2f}\t".format(precision, recall, f1),
+                      "Elapsed time: {0:0.2f} secs".format(elapsed))
+
         except KeyboardInterrupt:
             print("Keyboard Interrupt. Exiting.")
             break
