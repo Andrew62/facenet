@@ -108,41 +108,43 @@ with tf.Session(graph=graph, config=config).as_default() as sess:
                 embeddings_np.append(embed)
             embeddings_np = np.vstack(embeddings_np)
             triplets = get_triplets(image_paths, embeddings_np, classes)
+            n_trips = triplets.shape[0]
+            trip_step = batch_size - (batch_size % 3)
+            for idx in range(0, n_trips, trip_step):
+                feed_dict = {
+                    image_paths_ph: triplets[idx: idx + trip_step]
+                }
+                global_step += 1
+                batch_per_sec = (time.time() - start) / global_step
+                if global_step % 100 == 0:
+                    summary, _, loss = sess.run([merged, optimizer, losses], feed_dict=feed_dict)
+                    summary_writer.add_summary(summary, global_step)
 
-            feed_dict = {
-                image_paths_ph: triplets
-            }
-            global_step += 1
-            batch_per_sec = (time.time() - start) / global_step
-            if global_step % 100 == 0:
-                summary, _, loss = sess.run([merged, optimizer, losses], feed_dict=feed_dict)
-                summary_writer.add_summary(summary, global_step)
+                else:
+                    _, loss = sess.run([optimizer, losses], feed_dict=feed_dict)
+                print("global step: {0:,}\tloss: {1:0.5f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec))
+                if global_step % 1000 == 0:
+                    saver.save(sess, checkpoint_dir + '/facenet', global_step=global_step)
 
-            else:
-                _, loss = sess.run([optimizer, losses], feed_dict=feed_dict)
-            print("global step: {0:,}\tloss: {1:0.3f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec))
-            if global_step % 1000 == 0:
-                saver.save(sess, checkpoint_dir + '/facenet', global_step=global_step)
+                    print("Evaluating")
+                    start = time.time()
+                    evaluation_set = dataset.get_evaluation_batch()
+                    threshold, val_rate, fa_rate, precision, recall, f1 = evaluate(sess, evaluation_set, image_paths_ph,
+                                                                                   embeddings, thresholds=thresholds)
+                    validation_metrics["false_accept_rate"].append(fa_rate)
+                    validation_metrics["true_accept_rate"].append(val_rate)
+                    validation_metrics["threshold"].append(threshold)
+                    validation_metrics["global_step"].append(global_step)
+                    validation_metrics["precision"].append(precision)
+                    validation_metrics["recall"].append(recall)
+                    validation_metrics["f1"].append(f1)
 
-                print("Evaluating")
-                start = time.time()
-                evaluation_set = dataset.get_evaluation_batch()
-                threshold, val_rate, fa_rate, precision, recall, f1 = evaluate(sess, evaluation_set, image_paths_ph,
-                                                                               embeddings, thresholds=thresholds)
-                validation_metrics["false_accept_rate"].append(fa_rate)
-                validation_metrics["true_accept_rate"].append(val_rate)
-                validation_metrics["threshold"].append(threshold)
-                validation_metrics["global_step"].append(global_step)
-                validation_metrics["precision"].append(precision)
-                validation_metrics["recall"].append(recall)
-                validation_metrics["f1"].append(f1)
-
-                # keep writing to this file so we can see updates. Would be better to add to tensorboard
-                helper.to_json(validation_metrics, metrics_file)
-                elapsed = time.time() - start
-                print("VAL: {0:0.2f}\tFAR: {1:0.2f}\tThreshold: {2:0.2f}\t".format(val_rate, fa_rate, threshold),
-                      "Precision: {0:0.2f}\tRecall: {1:0.2f}\tF-1: {2:0.2f}\t".format(precision, recall, f1),
-                      "Elapsed time: {0:0.2f} secs".format(elapsed))
+                    # keep writing to this file so we can see updates. Would be better to add to tensorboard
+                    helper.to_json(validation_metrics, metrics_file)
+                    elapsed = time.time() - start
+                    print("VAL: {0:0.2f}\tFAR: {1:0.2f}\tThreshold: {2:0.2f}\t".format(val_rate, fa_rate, threshold),
+                          "Precision: {0:0.2f}\tRecall: {1:0.2f}\tF-1: {2:0.2f}\t".format(precision, recall, f1),
+                          "Elapsed time: {0:0.2f} secs".format(elapsed))
 
         except KeyboardInterrupt:
             print("Keyboard Interrupt. Exiting.")

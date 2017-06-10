@@ -2,7 +2,7 @@ import numpy as np
 from loss import l2_squared_distance
 
 
-def get_triplets(image_paths, embeddings, class_ids):
+def get_triplets(image_paths, embeddings, class_ids, alpha=0.2):
     unique_ids = np.unique(class_ids)
     out_fps = []
 
@@ -12,27 +12,18 @@ def get_triplets(image_paths, embeddings, class_ids):
         class_fps = image_paths[class_ids == class_id]
         out_of_class_vectors = embeddings[class_ids != class_id, :]
         out_of_class_fps = image_paths[class_ids != class_id]
-        best_neg_dist = float('inf')
-        best_pos_dist = float('-inf')
-        best_anchor = None
-        best_pos = None
-        best_neg = None
-        for anchor_idx in range(class_vectors.shape[0]):
-            pos_dist_values = l2_squared_distance(class_vectors[anchor_idx], class_vectors, axis=1)
+        for anchor_idx in range(class_vectors.shape[0] - 1):
+            anchor_vec = class_vectors[anchor_idx, :]
+            other_positive = class_vectors[anchor_idx + 1:, :]
+            pos_dist_values = l2_squared_distance(anchor_vec, other_positive, axis=1)
             pos_idx = np.argmax(pos_dist_values)
-            pos_dist = pos_dist_values[pos_idx]
-
+            positive_dist = pos_dist_values[pos_idx]
             neg_dist_values = l2_squared_distance(class_vectors[anchor_idx], out_of_class_vectors, axis=1)
-            neg_idx = np.argmin(neg_dist_values)
-            neg_dist = neg_dist_values[neg_idx]
-            if neg_dist < best_neg_dist and pos_dist > best_pos_dist:
-                best_neg_dist = neg_dist
-                best_pos_dist = pos_dist
-                best_pos = pos_idx
-                best_neg = neg_idx
-                best_anchor = anchor_idx
-        if best_neg is None or best_neg is None:
-            raise ValueError("Could not find a best value")
-        out_fps.extend([class_fps[best_anchor], class_fps[best_pos], out_of_class_fps[best_neg]])
-
+            # np.where returns a list. we want the first element
+            valid_negatives = np.where(neg_dist_values - positive_dist < alpha)[0]
+            if len(valid_negatives) > 0:
+                # input is a list of indicies
+                neg_idx = np.random.choice(valid_negatives)
+                out_fps.extend([class_fps[anchor_idx], class_fps[pos_idx], out_of_class_fps[neg_idx]])
+    print("Generated {0:,} triplets".format(len(out_fps)//3))
     return np.asarray(out_fps)
