@@ -3,30 +3,27 @@ import numpy as np
 from loss import l2_squared_distance
 
 
-def validation_rate(n_accepted, n_same):
-    return n_accepted / n_same
+def accuracy(pred, true_labels):
+    tp = np.logical_and(pred, true_labels).sum()
+    fp = np.logical_and(pred, np.logical_not(true_labels)).sum()
+    tn = np.logical_and(np.logical_not(pred), np.logical_not(true_labels)).sum()
+    fn = np.logical_and(np.logical_not(pred), true_labels).sum()
+    tpr = 0 if (tp + fn == 0) else tp / (tp + fn)
+    fpr = 0 if (fp + tn == 0) else fp / (fp + tn)
+    acc = (tp + tn) / pred.shape[0]
+    return tpr, fpr, acc
 
 
-def false_accept_rate(n_false_accepted, n_diff):
-    return n_false_accepted / n_diff
-
-
-def optimal_threshold(l2_dists, true_labels, thresholds=np.arange(0, 4, 0.1)):
-    best_validation_rate = float('-inf')
-    best_false_accept_rate = float("inf")
+def optimal_threshold(l2_dists, true_labels, thresholds=np.arange(0.1, 4, 0.01)):
+    best_accuracy = float('-inf')
     best_threshold = None
     for threshold in thresholds:
-        cutoff = np.where(l2_dists <= threshold, 1.0, 0.0)
-        ta = np.logical_and(true_labels, cutoff)
-        val = validation_rate(ta.sum(), true_labels.sum())
-        fa = np.logical_and(np.logical_not(true_labels), cutoff).sum()
-        n_diff = np.logical_not(true_labels).sum()
-        far = false_accept_rate(fa, n_diff)
-        if val > best_validation_rate and far < best_false_accept_rate:
+        pred = np.where(l2_dists <= threshold, 1, 0)
+        _, _, acc = accuracy(pred, true_labels)
+        if acc > best_accuracy:
             best_threshold = threshold
-            best_false_accept_rate = far
-            best_validation_rate = val
-    return best_threshold, best_validation_rate, best_false_accept_rate
+            best_accuracy = acc
+    return best_threshold, best_accuracy
 
 
 def precision_recall_f1(pred, gt):
@@ -42,7 +39,7 @@ def precision_recall_f1(pred, gt):
     return precision, recall, f1
 
 
-def evaluate(sess, validation_set, image_path_ph, embeddings_op, batch_size=64, thresholds=np.arange(0, 4, 0.1)):
+def evaluate(sess, validation_set, image_path_ph, embeddings_op, batch_size=64, thresholds=np.arange(0, 4, 0.01)):
     col0 = validation_set[:, 0]
     col1 = validation_set[:, 1]
     # TODO is it more efficient to only run unique fps then reassemble?
@@ -57,7 +54,13 @@ def evaluate(sess, validation_set, image_path_ph, embeddings_op, batch_size=64, 
     col1_embeddings = embeddings[n_rows:, :]
     l2_dist = l2_squared_distance(col0_embeddings, col1_embeddings, axis=1)
     true_labels = validation_set[:, -1].astype(np.int)
-    threshold, val_rate, fa_rate = optimal_threshold(l2_dist, true_labels, thresholds=thresholds)
+    threshold, acc = optimal_threshold(l2_dist, true_labels, thresholds=thresholds)
     pred = np.where(l2_dist < threshold, 1, 0)
     precision, recall, f1 = precision_recall_f1(pred, true_labels)
-    return threshold, val_rate, fa_rate, precision, recall, f1
+    return threshold, acc, precision, recall, f1
+
+
+if __name__ == "__main__":
+    dists = np.random.random((100,))
+    true_labs = np.random.randint(0, 2, (100,))
+    print(optimal_threshold(dists, true_labs))
