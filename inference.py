@@ -16,7 +16,7 @@ def main():
                         type=str, required=True)
     parser.add_argument("-o", "--out_npz", help="output embeddings as a npz file",
                         type=str, required=True)
-    parser.add_argument("-c", "--checkpoint", help="model checkpoint to use",
+    parser.add_argument("-c", "--checkpoint_dir", help="model checkpoint directory to use",
                         type=str, required=True)
     parser.add_argument("-b", "--batch_size", help="number of images per batch",
                         type=int, default=64)
@@ -24,7 +24,7 @@ def main():
 
     embedding_size = 128
     is_training = False
-    image_shape = (224, 224, 3)
+    image_shape = (160, 160, 3)
 
     print("Building graph")
     graph = tf.Graph()
@@ -40,12 +40,13 @@ def main():
                                                                            num_classes=embedding_size,
                                                                            dropout_keep_prob=1.0)
         l2 = tf.nn.l2_normalize(prelogits, 0)
-        saver = tf.train.Saver(slim.get_model_variables())
+        saver = tf.train.Saver(tf.trainable_variables())
 
     with tf.Session(graph=graph).as_default() as sess:
-        if args.checkpoint:
-            print("Loading checkpoint: {}".format(args.checkpoint))
-            saver.restore(sess, args.checkpoint)
+        checkpoint = tf.train.latest_checkpoint(args.checkpoint_dir)
+        if checkpoint:
+            print("Loading checkpoint: {}".format(checkpoint))
+            saver.restore(sess, checkpoint)
         else:
             print("No checkpoint found! Exiting")
             sys.exit(0)

@@ -64,6 +64,8 @@ with graph.as_default():
     merged = tf.summary.merge_all()
     summary_writer = tf.summary.FileWriter(checkpoint_dir,
                                            graph=graph)
+    tf.add_to_collection("input_image_paths", image_paths_ph)
+    tf.add_to_collection("output_embeddings", embeddings)
 
 print("Starting session")
 config = tf.ConfigProto()
@@ -85,8 +87,7 @@ with tf.Session(graph=graph, config=config).as_default() as sess:
 
     # used to collect validation metrics
     validation_metrics = {
-        "false_accept_rate": [],
-        "true_accept_rate": [],
+        "accuracy": [],
         "threshold": [],
         "global_step": [],
         "precision": [],
@@ -129,10 +130,9 @@ with tf.Session(graph=graph, config=config).as_default() as sess:
                     print("Evaluating")
                     start = time.time()
                     evaluation_set = dataset.get_evaluation_batch()
-                    threshold, val_rate, fa_rate, precision, recall, f1 = evaluate(sess, evaluation_set, image_paths_ph,
-                                                                                   embeddings, thresholds=thresholds)
-                    validation_metrics["false_accept_rate"].append(fa_rate)
-                    validation_metrics["true_accept_rate"].append(val_rate)
+                    threshold, accuracy, precision, recall, f1 = evaluate(sess, evaluation_set, image_paths_ph,
+                                                                          embeddings, thresholds=thresholds)
+                    validation_metrics["accuracy"].append(accuracy)
                     validation_metrics["threshold"].append(threshold)
                     validation_metrics["global_step"].append(global_step)
                     validation_metrics["precision"].append(precision)
@@ -142,7 +142,7 @@ with tf.Session(graph=graph, config=config).as_default() as sess:
                     # keep writing to this file so we can see updates. Would be better to add to tensorboard
                     helper.to_json(validation_metrics, metrics_file)
                     elapsed = time.time() - start
-                    print("VAL: {0:0.2f}\tFAR: {1:0.2f}\tThreshold: {2:0.2f}\t".format(val_rate, fa_rate, threshold),
+                    print("Accuracy: {0:0.2f}\tThreshold: {1:0.2f}\t".format(accuracy, threshold),
                           "Precision: {0:0.2f}\tRecall: {1:0.2f}\tF-1: {2:0.2f}\t".format(precision, recall, f1),
                           "Elapsed time: {0:0.2f} secs".format(elapsed))
 

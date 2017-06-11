@@ -55,7 +55,7 @@ def evaluate(sess, validation_set, image_path_ph, embeddings_op, batch_size=64, 
     l2_dist = l2_squared_distance(col0_embeddings, col1_embeddings, axis=1)
     true_labels = validation_set[:, -1].astype(np.int)
     threshold, acc = optimal_threshold(l2_dist, true_labels, thresholds=thresholds)
-    pred = np.where(l2_dist < threshold, 1, 0)
+    pred = np.where(l2_dist <= threshold, 1, 0)
     precision, recall, f1 = precision_recall_f1(pred, true_labels)
     return threshold, acc, precision, recall, f1
 
