@@ -64,8 +64,6 @@ with graph.as_default():
     merged = tf.summary.merge_all()
     summary_writer = tf.summary.FileWriter(checkpoint_dir,
                                            graph=graph)
-    tf.add_to_collection("input_image_paths", image_paths_ph)
-    tf.add_to_collection("output_embeddings", embeddings)
 
 print("Starting session")
 config = tf.ConfigProto()
