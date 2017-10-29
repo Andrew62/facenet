@@ -1,6 +1,5 @@
 
 import numpy as np
-from loss import l2_squared_distance
 
 
 def accuracy(pred, true_labels):
@@ -37,30 +36,6 @@ def precision_recall_f1(pred, gt):
     recall = tp / (tp + fn)
     f1 = 2 * ((precision * recall) / (precision + recall))
     return precision, recall, f1
-
-
-def evaluate(sess, validation_set, image_path_ph, is_training_ph, embeddings_op, global_step_ph, global_step,
-             batch_size=64, thresholds=np.arange(0, 4, 0.01)):
-    col0 = validation_set[:, 0]
-    col1 = validation_set[:, 1]
-    # TODO is it more efficient to only run unique fps then reassemble?
-    all_fps = np.hstack([col0, col1])
-    embeddings = []
-    for idx in range(0, all_fps.shape[0], batch_size):
-        batch = all_fps[idx: idx + batch_size]
-        embeddings.append(sess.run(embeddings_op, feed_dict={image_path_ph: batch,
-                                                             is_training_ph: False,
-                                                             global_step_ph: global_step}))
-    embeddings = np.vstack(embeddings)
-    n_rows = validation_set.shape[0]
-    col0_embeddings = embeddings[:n_rows, :]
-    col1_embeddings = embeddings[n_rows:, :]
-    l2_dist = l2_squared_distance(col0_embeddings, col1_embeddings, axis=1)
-    true_labels = validation_set[:, -1].astype(np.int)
-    threshold, acc = optimal_threshold(l2_dist, true_labels, thresholds=thresholds)
-    pred = np.where(l2_dist <= threshold, 1, 0)
-    precision, recall, f1 = precision_recall_f1(pred, true_labels)
-    return threshold, acc, precision, recall, f1, embeddings, true_labels
 
 
 if __name__ == "__main__":

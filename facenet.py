@@ -1,60 +1,140 @@
-import helper
+import performance
 import numpy as np
 import tensorflow as tf
-from functools import partial
-from data import read_one_image
 from tensorflow.contrib import slim
 from networks import inception_resnet_v2
-from loss import loss_func
 
 
 class FaceNet(object):
-    def __init__(self,
-                 input_faces_file,
-                 checkpoint_dir,
-                 batch_size=64,
-                 emebedding_size=128,
-                 is_training=tf.placeholder(tf.bool, []),
-                 starting_learning_rate=0.01,
-                 image_shape=(160, 160, 3),
-                 identities_per_batch = 40,
-                 n_images_per_iden=25,
-                 n_validation_images=3000,
-                 eval_threholds=np.arange(0, 4, 0.1)):
-        self.input_faces_file = input_faces_file
-        helper.check_dir(checkpoint_dir)
-        self.checkpoint_dir = checkpoint_dir
-        self.batch_size = batch_size
-        self.embedding_size = emebedding_size
-        self.is_training = is_training
-        self.learning_rate = starting_learning_rate
-        self.image_shape = image_shape
-        self.identities_per_batch = identities_per_batch
-        self.n_images_per_iden = n_images_per_iden
-        self.n_val_images = n_validation_images
-        self.eval_thresholds = eval_threholds
-
-        image_paths_ph = tf.placeholder(tf.string)
-
-        images = tf.map_fn(read_func, image_paths_ph, dtype=tf.float32)
+    def __init__(self, images, is_training, embedding_size, global_step, init_learning_rate):
         # do the network thing here
         with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
             prelogits, endpoints = inception_resnet_v2.inception_resnet_v2(images,
                                                                            is_training=is_training,
-                                                                           num_classes=self.embedding_size)
-        self.embeddings = tf.nn.l2_normalize(prelogits, 0, name="embeddings")
+                                                                           num_classes=embedding_size)
+        self.embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name="embeddings")
 
         # don't run this until we've already done a batch pass of faces. We
         # compute the triplets offline, stack, and run through again
-        anchors, positives, negatives = tf.unstack(tf.reshape(self.embeddings, [-1, 3, self.embedding_size]), axis=1)
-        losses = loss_func(anchors, positives, negatives)
+        anchors, positives, negatives = tf.unstack(tf.reshape(self.embeddings, [-1, 3, embedding_size]), 3, 1)
+        losses = self.facenet_loss(anchors, positives, negatives)
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        total_loss = tf.add_n([losses] + regularization_loss, name="total_loss")
-        learning_rate = tf.train.exponential_decay()
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(total_loss)
-        tf.summary.scalar("Total Loss", total_loss)
+        self.total_loss = tf.add_n([losses] + regularization_loss, name="total_loss")
+        learning_rate = tf.train.exponential_decay(init_learning_rate,
+                                                   decay_rate=0.96,
+                                                   decay_steps=250,
+                                                   staircase=True,
+                                                   global_step=global_step)
+        tf.summary.scalar("Learning_Rate", learning_rate)
+        self.optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(self.total_loss)
+        tf.summary.scalar("Total Loss", self.total_loss)
+        self.merged_summaries = tf.summary.merge_all()
 
-        self.init_op = tf.global_variables_initializer()
-        self.saver = tf.train.Saver()
-        self.merged = tf.summary.merge_all()
-        self.summary_writer = tf.summary.FileWriter(checkpoint_dir)
+    @staticmethod
+    def facenet_loss(anchors, positives, negatives, alpha=0.2):
+        """
+        Loss function pulled form FaceNet paper. Loss function is
+            ave([||f(anchor) - f(positive))||**2] - [||f(anchor) - f(negative)||**2] + alpha)
+        """
+        # reduce row-wise
+        positive_dist = tf.reduce_sum(tf.pow(anchors - positives, 2), 1)
+        tf.summary.scalar("Positive_Distance", tf.reduce_mean(positive_dist))
+        negative_dist = tf.reduce_sum(tf.pow(anchors - negatives, 2), 1)
+        tf.summary.scalar("Negative_Distance", tf.reduce_mean(negative_dist))
+        loss = positive_dist - negative_dist + alpha
+        # reduce mean since we could have variable batch size
+        return tf.reduce_mean(tf.maximum(loss, 0.0), 0)
+
+    @staticmethod
+    def attalos_loss(anchors, positives, negatives):
+        """Pulled from another embedding project: https://github.com/Lab41/attalos
+        """
+        def meanlogsig(a, b):
+            reduction_indices = 2
+            return tf.reduce_mean(
+                tf.log(tf.sigmoid(tf.reduce_sum(a * b, reduction_indices=reduction_indices))))
+        pos_loss = meanlogsig(anchors, positives)
+        neg_loss = meanlogsig(-anchors, negatives)
+        return -(pos_loss + neg_loss)
+
+    def evaluate(self,
+                 sess,
+                 validation_set,
+                 image_paths_ph,
+                 is_training_ph,
+                 global_step_ph,
+                 global_step,
+                 batch_size=64,
+                 thresholds=np.arange(0, 4, 0.01)):
+        col0 = validation_set[:, 0]
+        col1 = validation_set[:, 1]
+        # TODO is it more efficient to only run unique fps then reassemble?
+        all_fps = np.hstack([col0, col1])
+        embeddings = self.inference(sess,
+                                    all_fps,
+                                    batch_size,
+                                    False,
+                                    image_paths_ph,
+                                    is_training_ph,
+                                    global_step,
+                                    global_step_ph)
+        n_rows = validation_set.shape[0]
+        col0_embeddings = embeddings[:n_rows, :]
+        col1_embeddings = embeddings[n_rows:, :]
+        l2_dist = self.l2_squared_distance(col0_embeddings, col1_embeddings, axis=1)
+        true_labels = validation_set[:, -1].astype(np.int)
+        threshold, acc = performance.optimal_threshold(l2_dist, true_labels, thresholds=thresholds)
+        pred = np.where(l2_dist <= threshold, 1, 0)
+        precision, recall, f1 = performance.precision_recall_f1(pred, true_labels)
+        return threshold, acc, precision, recall, f1
+
+    @staticmethod
+    def l2_squared_distance(a, b, axis=None):
+        return np.sum(np.power(a - b, 2), axis=axis)
+
+    def get_triplets(self, image_paths, embeddings, class_ids, alpha=0.2):
+        unique_ids = np.unique(class_ids)
+        out_fps = []
+
+        # do this to make the comparison below to check for the same class
+        for class_id in unique_ids:
+            class_vectors = embeddings[class_ids == class_id, :]
+            class_fps = image_paths[class_ids == class_id]
+            assert class_vectors.shape[0] == class_fps.shape[0], "embedding and file name mismatch"
+            out_of_class_vectors = embeddings[class_ids != class_id, :]
+            out_of_class_fps = image_paths[class_ids != class_id]
+            assert out_of_class_vectors.shape[0] == out_of_class_fps.shape[0], "embedding and file name mismatch"
+            for anchor_idx in range(class_vectors.shape[0] - 1):
+                anchor_vec = class_vectors[anchor_idx, :]
+                other_positive = class_vectors[anchor_idx + 1:, :]
+                pos_dist_values = self.l2_squared_distance(anchor_vec, other_positive, 1)
+                pos_idx = np.argmax(pos_dist_values)
+                positive_dist = pos_dist_values[pos_idx]
+                neg_dist_values = self.l2_squared_distance(class_vectors[anchor_idx, :], out_of_class_vectors, axis=1)
+                # np.where returns a list. we want the first element
+                valid_negatives = np.where(neg_dist_values - positive_dist < alpha)[0]
+                if len(valid_negatives) > 0:
+                    # input is a list of indicies
+                    neg_idx = np.random.choice(valid_negatives)
+                    out_fps.extend([class_fps[anchor_idx], class_fps[pos_idx], out_of_class_fps[neg_idx]])
+        print("Generated {0:,} triplets".format(len(out_fps) // 3))
+        return np.asarray(out_fps)
+
+    def inference(self,
+                  sess,
+                  file_paths,
+                  batch_size,
+                  is_training,
+                  image_paths_ph,
+                  is_training_ph,
+                  global_step,
+                  global_step_ph):
+        embeddings = []
+        for idx in range(0, file_paths.shape[0], batch_size):
+            batch = file_paths[idx: idx + batch_size]
+            embeddings.append(sess.run(self.embeddings, feed_dict={
+                image_paths_ph: batch,
+                is_training_ph: is_training,
+                global_step_ph: global_step
+            }))
+        return np.vstack(embeddings)

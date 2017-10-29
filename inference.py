@@ -1,14 +1,11 @@
 
 import sys
-import time
 import numpy as np
 import tensorflow as tf
-from loss import loss_func
+from facenet import FaceNet
 from functools import partial
 from argparse import ArgumentParser
-from tensorflow.contrib import slim
 from data import read_one_image, Dataset
-from networks import inception_resnet_v2
 
 
 def main():
@@ -32,56 +29,45 @@ def main():
     graph = tf.Graph()
     with graph.as_default():
         image_paths_ph = tf.placeholder(tf.string)
-        read_func = partial(read_one_image,
-                            is_training=is_training,
-                            image_shape=image_shape)
-        images = tf.map_fn(read_func, image_paths_ph, dtype=tf.float32)
-        # do the network thing here
-        with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
-            prelogits, endpoints = inception_resnet_v2.inception_resnet_v2(images,
-                                                                           is_training=is_training,
-                                                                           num_classes=embedding_size)
-        embeddings = tf.nn.l2_normalize(prelogits, 0, epsilon=1e-10, name="embeddings")
-
-        # don't run this until we've already done a batch pass of faces. We
-        # compute the triplets offline, stack, and run through again
-        anchors, positives, negatives = tf.unstack(tf.reshape(embeddings, [-1, 3, embedding_size]), axis=1)
-        losses = loss_func(anchors, positives, negatives)
-
-        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(losses)
-        tf.summary.scalar("Loss", losses)
-
-        init_op = tf.global_variables_initializer()
-        saver = tf.train.Saver()
-        merged = tf.summary.merge_all()
-        summary_writer = tf.summary.FileWriter(args.checkpoint_dir,
-                                               graph=graph)
-
+        global_step_ph = tf.placeholder(tf.int32)
+        is_training_ph = tf.placeholder(tf.bool)
+        # do this so we can change behavior
+        read_one_train = partial(read_one_image,
+                                 is_training=True,
+                                 image_shape=image_shape)
+        read_one_test = partial(read_one_image,
+                                is_training=False,
+                                image_shape=image_shape)
+        images = tf.cond(is_training_ph,
+                         true_fn=lambda: tf.map_fn(read_one_train, image_paths_ph, dtype=tf.float32),
+                         false_fn=lambda: tf.map_fn(read_one_test, image_paths_ph, dtype=tf.float32))
+        network = FaceNet(images,
+                          is_training_ph,
+                          embedding_size,
+                          global_step_ph,
+                          learning_rate)
     with tf.Session(graph=graph).as_default() as sess:
         checkpoint = tf.train.latest_checkpoint(args.checkpoint_dir)
+        saver = tf.train.Saver()
         if checkpoint:
             print("Loading checkpoint: {}".format(checkpoint))
             saver.restore(sess, checkpoint)
         else:
             print("No checkpoint found! Exiting")
             sys.exit(0)
-        out_embeddings = list()
         dataset = Dataset(args.input_json)
         file_paths, class_codes = dataset.get_all_files()
-        counter = 1
-        start = time.time()
-        for idx in range(0, len(file_paths), args.batch_size):
-            embedding = sess.run(embeddings, feed_dict={
-                image_paths_ph: file_paths[idx: idx+args.batch_size]
-            })
-            out_embeddings.append(embedding)
-            batch_per_sec = (time.time() - start) / counter
-            print("processed batch {0:,}\tbatch/sec: {1:0.2f}".format(counter, batch_per_sec))
-            counter += 1
-
-        out_embeddings = np.vstack(out_embeddings)
+        out_embeddings = network.inference(sess,
+                                           file_paths,
+                                           args.batch_size,
+                                           False,
+                                           image_paths_ph,
+                                           is_training_ph,
+                                           1,
+                                           global_step_ph)
         class_codes = np.vstack(class_codes)
         np.savez(args.out_npz, embeddings=out_embeddings, class_codes=class_codes)
+    print("Done")
 
 
 if __name__ == "__main__":

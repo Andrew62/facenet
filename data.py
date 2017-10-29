@@ -1,9 +1,11 @@
 
 import random
-import helper
+from itertools import combinations
+
 import numpy as np
 import tensorflow as tf
-from itertools import combinations
+
+from utils import helper
 
 
 def read_one_image(fname, **kwargs):
