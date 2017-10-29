@@ -3,11 +3,12 @@ import sys
 import time
 import numpy as np
 import tensorflow as tf
+from loss import loss_func
 from functools import partial
 from argparse import ArgumentParser
 from tensorflow.contrib import slim
-from networks import inception_resnet_v2
 from data import read_one_image, Dataset
+from networks import inception_resnet_v2
 
 
 def main():
@@ -25,6 +26,7 @@ def main():
     embedding_size = 128
     is_training = False
     image_shape = (160, 160, 3)
+    learning_rate = 0.01
 
     print("Building graph")
     graph = tf.Graph()
@@ -37,10 +39,23 @@ def main():
         # do the network thing here
         with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
             prelogits, endpoints = inception_resnet_v2.inception_resnet_v2(images,
-                                                                           num_classes=embedding_size,
-                                                                           dropout_keep_prob=1.0)
-        l2 = tf.nn.l2_normalize(prelogits, 0)
-        saver = tf.train.Saver(tf.trainable_variables())
+                                                                           is_training=is_training,
+                                                                           num_classes=embedding_size)
+        embeddings = tf.nn.l2_normalize(prelogits, 0, epsilon=1e-10, name="embeddings")
+
+        # don't run this until we've already done a batch pass of faces. We
+        # compute the triplets offline, stack, and run through again
+        anchors, positives, negatives = tf.unstack(tf.reshape(embeddings, [-1, 3, embedding_size]), axis=1)
+        losses = loss_func(anchors, positives, negatives)
+
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(losses)
+        tf.summary.scalar("Loss", losses)
+
+        init_op = tf.global_variables_initializer()
+        saver = tf.train.Saver()
+        merged = tf.summary.merge_all()
+        summary_writer = tf.summary.FileWriter(args.checkpoint_dir,
+                                               graph=graph)
 
     with tf.Session(graph=graph).as_default() as sess:
         checkpoint = tf.train.latest_checkpoint(args.checkpoint_dir)
@@ -50,23 +65,24 @@ def main():
         else:
             print("No checkpoint found! Exiting")
             sys.exit(0)
-        embeddings = []
+        out_embeddings = list()
         dataset = Dataset(args.input_json)
         file_paths, class_codes = dataset.get_all_files()
         counter = 1
         start = time.time()
         for idx in range(0, len(file_paths), args.batch_size):
-            embedding = sess.run(l2, feed_dict={
+            embedding = sess.run(embeddings, feed_dict={
                 image_paths_ph: file_paths[idx: idx+args.batch_size]
             })
-            embeddings.append(embedding)
+            out_embeddings.append(embedding)
             batch_per_sec = (time.time() - start) / counter
             print("processed batch {0:,}\tbatch/sec: {1:0.2f}".format(counter, batch_per_sec))
             counter += 1
 
-        embeddings = np.vstack(embeddings)
+        out_embeddings = np.vstack(out_embeddings)
         class_codes = np.vstack(class_codes)
-        np.savez(args.out_npz, embeddings=embeddings, class_codes=class_codes)
+        np.savez(args.out_npz, embeddings=out_embeddings, class_codes=class_codes)
+
 
 if __name__ == "__main__":
     main()
