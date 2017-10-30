@@ -21,7 +21,7 @@ class FaceNet(object):
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         self.total_loss = tf.add_n([losses] + regularization_loss, name="total_loss")
         learning_rate = tf.train.exponential_decay(init_learning_rate,
-                                                   decay_rate=0.96,
+                                                   decay_rate=0.98,  # so far the best run set this to 0.96
                                                    decay_steps=250,
                                                    staircase=True,
                                                    global_step=global_step)

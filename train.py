@@ -23,7 +23,6 @@ def main():
     parser.add_argument("-d", "--identities_per_batch", default=100, type=int)
     parser.add_argument("-n", "--n_images_per_iden", default=25, type=int)
     parser.add_argument("-v", "--n_validation", default=3000, type=int)
-    parser.add_argument("-o", "--embeddings_file", default="embeddings/embeddings.npz")
     parser.add_argument("-p", "--pretrained_base_model",
                         default="checkpoints/pretrained/inception_resnet_v2_2016_08_30.ckpt")
 
@@ -73,7 +72,7 @@ def main():
                           n_images_per=args.n_images_per_iden,
                           n_eval_pairs=args.n_validation)
         print("Starting loop")
-        while True:
+        while global_step < 60000:
             try:
                 # embed and collect all current face weights
                 image_paths, classes = dataset.get_train_batch()
@@ -133,7 +132,9 @@ def main():
                                                            is_training_ph,
                                                            global_step,
                                                            global_step_ph)
-                        np.savez(args.embeddings_file, embeddings=all_embeddings, class_codes=image_ids_np)
+                        np.savez(os.path.join(args.checkpoint_dir, "embeddings.npz"),
+                                 embeddings=all_embeddings,
+                                 class_codes=image_ids_np)
                         for name in ['andrew', 'erin']:
                             person_embed = all_embeddings[image_ids_np == dataset.name_to_idx[name], :]
                             sim = np.dot(all_embeddings, person_embed[0])
@@ -148,6 +149,9 @@ def main():
                 break
         saver.save(sess, os.path.join(args.checkpoint_dir, 'facenet'), global_step=global_step)
         helper.to_json(dataset.idx_to_name, os.path.join(args.checkpoint_dir, "idx_to_name.json"))
+        np.savez(os.path.join(args.checkpoint_dir, "embeddings.npz"),
+                 embeddings=all_embeddings,
+                 class_codes=image_ids_np)
         print("Saved to: {0}".format(args.checkpoint_dir))
     print("Done")
 
