@@ -54,11 +54,13 @@ After data prep you can run:
 python train.py -i /path/to/faces.json -c /path/to/checkpoint/dir/ -p /path/to/inception_resnet_v2.ckpt
 ```
 
+You can monitor training progress using tensorboard pointed at the checkpoint directory.
+
 # Command Line Inference
 
 Run inference with a model using the following script. This script takes advantage of
 embeddings generated at the end of the training script to perform pairwise comparisons
 
 ```bash
-python inference.py -i /path/to/image/1.jpg /path/to/image/2.jpg -c /path/to/checkpoint
+python inference.py -i /path/to/image/1.jpg /path/to/image/2.jpg -c /path/to/checkpoint.ckpt
 ```
