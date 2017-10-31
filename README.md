@@ -29,7 +29,8 @@ python  data_prep/extract_faces.py -i /path/to/source/dir -o /path/to/output.jso
 
 # Training
 Model training starts from `inception_resnet_v2.py` trained on ImageNet.
-The base model can be [downloaded from here on the TF Slim page](http://download.tensorflow.org/models/inception_resnet_v2_2016_08_30.tar.gz).
+The base model can be 
+[downloaded from here on the TF Slim page](http://download.tensorflow.org/models/inception_resnet_v2_2016_08_30.tar.gz).
 From there, we set the number of classes to the embedding size, partially load
 the checkpoint excluding `InceptionResnetV2/Logits`, `InceptionResnetV2/AuxLogits`, and
 optimizer variables. In this case that's `RMSProp`. 
