@@ -67,11 +67,7 @@ def main():
         out_embeddings = network.inference(sess,
                                            np.array(args.inputs),
                                            args.batch_size,
-                                           False,
-                                           image_paths_ph,
-                                           is_training_ph,
-                                           1,
-                                           global_step_ph)
+                                           False, 1)
         cosine_sim = np.dot(embeddings, np.float32(out_embeddings.T))
         print(cosine_sim.shape)
         for idx, input_f in enumerate(args.inputs):

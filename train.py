@@ -3,30 +3,28 @@ import os
 import time
 import numpy as np
 import tensorflow as tf
+from data import Dataset
 from utils import helper
 from facenet import FaceNet
-from functools import partial
 from argparse import ArgumentParser
 from transfer import load_partial_model
-from data import Dataset, read_one_image
 
 
-def main():
-    parser = ArgumentParser()
-    parser.add_argument("-i", "--input_faces", help="input faces json file",
-                        default="fixtures/faces.json")
-    parser.add_argument("-c", "--checkpoint_dir", help="location to write training checkpoints",
-                        default="checkpoints/inception_resnet_v2/" + helper.get_current_timestamp())
-    parser.add_argument("-b", "--batch_size", default=64, type=int)
-    parser.add_argument("-e", "--embedding_size", default=128, type=int)
-    parser.add_argument("-l", "--learning_rate", default=0.01, type=float)
-    parser.add_argument("-d", "--identities_per_batch", default=100, type=int)
-    parser.add_argument("-n", "--n_images_per_iden", default=25, type=int)
-    parser.add_argument("-v", "--n_validation", default=3000, type=int)
-    parser.add_argument("-p", "--pretrained_base_model",
-                        default="checkpoints/pretrained/inception_resnet_v2_2016_08_30.ckpt")
+def process_all_images(dataset, network, sess, global_step, args):
+    all_images, image_ids = dataset.get_all_files()
+    all_images_np, image_ids_np = np.array(all_images), np.array(image_ids)
+    all_embeddings = network.inference(sess,
+                                       all_images_np,
+                                       args.batch_size,
+                                       False,
+                                       global_step)
+    np.savez(os.path.join(args.checkpoint_dir, "embeddings.npz"),
+             embeddings=all_embeddings,
+             class_codes=image_ids_np)
+    return all_embeddings, image_ids_np
 
-    args = parser.parse_args()
+
+def model_train(args):
     image_shape = (160, 160, 3)
     thresholds = np.arange(0, 4, 0.1)
     checkpoint_exclude_scopes = ["InceptionResnetV2/Logits", "InceptionResnetV2/AuxLogits", "RMSProp"]
@@ -35,24 +33,15 @@ def main():
     print("Building graph")
     graph = tf.Graph()
     with graph.as_default():
-        image_paths_ph = tf.placeholder(tf.string)
-        global_step_ph = tf.placeholder(tf.int32)
-        is_training_ph = tf.placeholder(tf.bool)
-        # do this so we can change behavior
-        read_one_train = partial(read_one_image,
-                                 is_training=True,
-                                 image_shape=image_shape)
-        read_one_test = partial(read_one_image,
-                                is_training=False,
-                                image_shape=image_shape)
-        images = tf.cond(is_training_ph,
-                         true_fn=lambda: tf.map_fn(read_one_train, image_paths_ph, dtype=tf.float32),
-                         false_fn=lambda: tf.map_fn(read_one_test, image_paths_ph, dtype=tf.float32))
-        network = FaceNet(images,
+        image_paths_ph = tf.placeholder(tf.string, name="input_image_paths")
+        global_step_ph = tf.placeholder(tf.int32, name="global_step")
+        is_training_ph = tf.placeholder(tf.bool, name="is_training")
+        network = FaceNet(image_paths_ph,
                           is_training_ph,
                           args.embedding_size,
                           global_step_ph,
-                          args.learning_rate)
+                          args.learning_rate,
+                          image_shape)
 
     print("Starting session")
     config = tf.ConfigProto()
@@ -72,7 +61,7 @@ def main():
                           n_images_per=args.n_images_per_iden,
                           n_eval_pairs=args.n_validation)
         print("Starting loop")
-        while global_step < 60000:
+        while global_step < args.train_steps:
             try:
                 # embed and collect all current face weights
                 image_paths, classes = dataset.get_train_batch()
@@ -80,10 +69,7 @@ def main():
                                                   image_paths,
                                                   args.batch_size,
                                                   True,
-                                                  image_paths_ph,
-                                                  is_training_ph,
-                                                  global_step,
-                                                  global_step_ph)
+                                                  global_step)
                 triplets = network.get_triplets(image_paths, embeddings_np, classes)
                 n_trips = triplets.shape[0]
                 trip_step = args.batch_size - (args.batch_size % 3)
@@ -112,9 +98,6 @@ def main():
                         evaluation_set = dataset.get_evaluation_batch()
                         (threshold, accuracy, precision, recall, f1) = network.evaluate(sess,
                                                                                         evaluation_set,
-                                                                                        image_paths_ph,
-                                                                                        is_training_ph,
-                                                                                        global_step_ph,
                                                                                         global_step,
                                                                                         batch_size=args.batch_size,
                                                                                         thresholds=thresholds)
@@ -122,26 +105,16 @@ def main():
                         print("Accuracy: {0:0.2f}\tThreshold: {1:0.2f}\t".format(accuracy, threshold),
                               "Precision: {0:0.2f}\tRecall: {1:0.2f}\tF-1: {2:0.2f}\t".format(precision, recall, f1),
                               "Elapsed time: {0:0.2f} secs".format(elapsed))
-                        all_images, image_ids = dataset.get_all_files()
-                        all_images_np, image_ids_np = np.array(all_images), np.array(image_ids)
-                        all_embeddings = network.inference(sess,
-                                                           all_images_np,
-                                                           args.batch_size,
-                                                           False,
-                                                           image_paths_ph,
-                                                           is_training_ph,
-                                                           global_step,
-                                                           global_step_ph)
-                        np.savez(os.path.join(args.checkpoint_dir, "embeddings.npz"),
-                                 embeddings=all_embeddings,
-                                 class_codes=image_ids_np)
+
+                        all_embeddings, image_ids = process_all_images(dataset, network, sess, global_step, args)
+
                         for name in ['andrew', 'erin']:
-                            person_embed = all_embeddings[image_ids_np == dataset.name_to_idx[name], :]
+                            person_embed = all_embeddings[image_ids == dataset.name_to_idx[name], :]
                             sim = np.dot(all_embeddings, person_embed[0])
                             sorted_values = np.argsort(sim)[::-1]
                             print("Similar to {0}".format(name.title()))
                             for pls_make_functions in sorted_values[1:6]:
-                                print("\t{0} ({1:0.5f})".format(dataset.idx_to_name[image_ids_np[pls_make_functions]],
+                                print("\t{0} ({1:0.5f})".format(dataset.idx_to_name[image_ids[pls_make_functions]],
                                                                 sim[pls_make_functions]))
 
             except KeyboardInterrupt:
@@ -149,11 +122,29 @@ def main():
                 break
         saver.save(sess, os.path.join(args.checkpoint_dir, 'facenet'), global_step=global_step)
         helper.to_json(dataset.idx_to_name, os.path.join(args.checkpoint_dir, "idx_to_name.json"))
-        np.savez(os.path.join(args.checkpoint_dir, "embeddings.npz"),
-                 embeddings=all_embeddings,
-                 class_codes=image_ids_np)
+        process_all_images(dataset, network, sess, global_step, args)
         print("Saved to: {0}".format(args.checkpoint_dir))
     print("Done")
+
+
+def main():
+    parser = ArgumentParser()
+    parser.add_argument("-i", "--input_faces", help="input faces json file",
+                        default="fixtures/faces.json")
+    parser.add_argument("-c", "--checkpoint_dir", help="location to write training checkpoints",
+                        default="checkpoints/inception_resnet_v2/" + helper.get_current_timestamp())
+    parser.add_argument("-b", "--batch_size", default=64, type=int)
+    parser.add_argument("-e", "--embedding_size", default=128, type=int)
+    parser.add_argument("-l", "--learning_rate", default=0.01, type=float)
+    parser.add_argument("-d", "--identities_per_batch", default=100, type=int)
+    parser.add_argument("-n", "--n_images_per_iden", default=25, type=int)
+    parser.add_argument("-v", "--n_validation", default=3000, type=int)
+    parser.add_argument("-p", "--pretrained_base_model",
+                        default="checkpoints/pretrained/inception_resnet_v2_2016_08_30.ckpt")
+    parser.add_argument("-s", "--train_steps", default=65000, type=int)
+
+    args = parser.parse_args()
+    model_train(args)
 
 
 if __name__ == "__main__":

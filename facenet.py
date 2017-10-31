@@ -1,33 +1,51 @@
 import performance
 import numpy as np
 import tensorflow as tf
+from functools import partial
+from data import read_one_image
 from tensorflow.contrib import slim
 from networks import inception_resnet_v2
 
 
 class FaceNet(object):
-    def __init__(self, images, is_training, embedding_size, global_step, init_learning_rate):
+    def __init__(self, image_paths_ph, is_training_ph, embedding_size, global_step_ph, init_learning_rate, image_shape):
+        self.is_training_ph = is_training_ph
+        self.global_step_ph = global_step_ph
+        self.image_paths_ph = image_paths_ph
+
+        # do this so we can change behavior
+        read_one_train = partial(read_one_image,
+                                 is_training=True,
+                                 image_shape=image_shape)
+        read_one_test = partial(read_one_image,
+                                is_training=False,
+                                image_shape=image_shape)
+        images = tf.cond(is_training_ph,
+                         true_fn=lambda: tf.map_fn(read_one_train, self.image_paths_ph, dtype=tf.float32),
+                         false_fn=lambda: tf.map_fn(read_one_test, self.image_paths_ph, dtype=tf.float32))
+
         # do the network thing here
         with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
             prelogits, endpoints = inception_resnet_v2.inception_resnet_v2(images,
-                                                                           is_training=is_training,
+                                                                           is_training=self.is_training_ph,
                                                                            num_classes=embedding_size)
-        self.embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name="embeddings")
+        self.embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name="l2_embedding")
 
         # don't run this until we've already done a batch pass of faces. We
         # compute the triplets offline, stack, and run through again
         anchors, positives, negatives = tf.unstack(tf.reshape(self.embeddings, [-1, 3, embedding_size]), 3, 1)
-        losses = self.facenet_loss(anchors, positives, negatives)
+        triplet_loss = self.facenet_loss(anchors, positives, negatives)
+        tf.summary.scalar("Triplet_Loss", triplet_loss)
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        self.total_loss = tf.add_n([losses] + regularization_loss, name="total_loss")
+        self.total_loss = tf.add_n([triplet_loss] + regularization_loss, name="total_loss")
         learning_rate = tf.train.exponential_decay(init_learning_rate,
-                                                   decay_rate=0.98,  # so far the best run set this to 0.96
+                                                   decay_rate=0.96,  # so far the best run set this to 0.96
                                                    decay_steps=250,
                                                    staircase=True,
-                                                   global_step=global_step)
+                                                   global_step=self.global_step_ph)
         tf.summary.scalar("Learning_Rate", learning_rate)
         self.optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(self.total_loss)
-        tf.summary.scalar("Total Loss", self.total_loss)
+        tf.summary.scalar("Total_Loss", self.total_loss)
         self.merged_summaries = tf.summary.merge_all()
 
     @staticmethod
@@ -60,9 +78,6 @@ class FaceNet(object):
     def evaluate(self,
                  sess,
                  validation_set,
-                 image_paths_ph,
-                 is_training_ph,
-                 global_step_ph,
                  global_step,
                  batch_size=64,
                  thresholds=np.arange(0, 4, 0.01)):
@@ -74,10 +89,7 @@ class FaceNet(object):
                                     all_fps,
                                     batch_size,
                                     False,
-                                    image_paths_ph,
-                                    is_training_ph,
-                                    global_step,
-                                    global_step_ph)
+                                    global_step)
         n_rows = validation_set.shape[0]
         col0_embeddings = embeddings[:n_rows, :]
         col1_embeddings = embeddings[n_rows:, :]
@@ -125,16 +137,13 @@ class FaceNet(object):
                   file_paths,
                   batch_size,
                   is_training,
-                  image_paths_ph,
-                  is_training_ph,
-                  global_step,
-                  global_step_ph):
+                  global_step):
         embeddings = []
         for idx in range(0, file_paths.shape[0], batch_size):
             batch = file_paths[idx: idx + batch_size]
             embeddings.append(sess.run(self.embeddings, feed_dict={
-                image_paths_ph: batch,
-                is_training_ph: is_training,
-                global_step_ph: global_step
+                self.image_paths_ph: batch,
+                self.is_training_ph: is_training,
+                self.global_step_ph: global_step
             }))
         return np.vstack(embeddings)
