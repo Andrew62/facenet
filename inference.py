@@ -40,21 +40,12 @@ def main():
         image_paths_ph = tf.placeholder(tf.string)
         global_step_ph = tf.placeholder(tf.int32)
         is_training_ph = tf.placeholder(tf.bool)
-        # do this so we can change behavior
-        read_one_train = partial(read_one_image,
-                                 is_training=True,
-                                 image_shape=image_shape)
-        read_one_test = partial(read_one_image,
-                                is_training=False,
-                                image_shape=image_shape)
-        images = tf.cond(is_training_ph,
-                         true_fn=lambda: tf.map_fn(read_one_train, image_paths_ph, dtype=tf.float32),
-                         false_fn=lambda: tf.map_fn(read_one_test, image_paths_ph, dtype=tf.float32))
-        network = FaceNet(images,
-                          is_training,
+        network = FaceNet(image_paths_ph,
+                          is_training_ph,
                           embedding_size,
                           global_step_ph,
-                          learning_rate)
+                          learning_rate,
+                          image_shape)
     with tf.Session(graph=graph).as_default() as sess:
         checkpoint = tf.train.latest_checkpoint(args.checkpoint_dir)
         saver = tf.train.Saver(graph.get_collection("variables"))
@@ -68,7 +59,7 @@ def main():
                                            np.array(args.inputs),
                                            args.batch_size,
                                            False, 1)
-        cosine_sim = np.dot(embeddings, np.float32(out_embeddings.T))
+        cosine_sim = np.dot(embeddings, np.float128(out_embeddings.T))
         print(cosine_sim.shape)
         for idx, input_f in enumerate(args.inputs):
             print("Input: {0}".format(input_f))
