@@ -4,8 +4,6 @@ import json
 import numpy as np
 import tensorflow as tf
 from facenet import FaceNet
-from functools import partial
-from data import read_one_image
 from argparse import ArgumentParser
 
 
@@ -30,7 +28,6 @@ def main():
         idx_to_name = json.load(inf)
 
     embedding_size = 128
-    is_training = False
     image_shape = (160, 160, 3)
     learning_rate = 0.01
 
