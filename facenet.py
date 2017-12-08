@@ -5,13 +5,14 @@ from functools import partial
 from data import read_one_image
 from tensorflow.contrib import slim
 from networks import inception_resnet_v2
+from utils import helper
 
 
 class FaceNet(object):
-    def __init__(self, image_paths_ph, is_training_ph, embedding_size, global_step_ph, init_learning_rate, image_shape):
+    def __init__(self, image_buffers_ph, is_training_ph, embedding_size, global_step_ph, init_learning_rate, image_shape):
         self.is_training_ph = is_training_ph
         self.global_step_ph = global_step_ph
-        self.image_paths_ph = image_paths_ph
+        self.image_buffers_ph = image_buffers_ph
 
         # do this so we can change behavior
         read_one_train = partial(read_one_image,
@@ -21,8 +22,8 @@ class FaceNet(object):
                                 is_training=False,
                                 image_shape=image_shape)
         images = tf.cond(is_training_ph,
-                         true_fn=lambda: tf.map_fn(read_one_train, self.image_paths_ph, dtype=tf.float32),
-                         false_fn=lambda: tf.map_fn(read_one_test, self.image_paths_ph, dtype=tf.float32))
+                         true_fn=lambda: tf.map_fn(read_one_train, self.image_buffers_ph, dtype=tf.float32),
+                         false_fn=lambda: tf.map_fn(read_one_test, self.image_buffers_ph, dtype=tf.float32))
 
         # do the network thing here
         with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
@@ -140,9 +141,10 @@ class FaceNet(object):
                   global_step):
         embeddings = []
         for idx in range(0, file_paths.shape[0], batch_size):
-            batch = file_paths[idx: idx + batch_size]
+            batch_fp = file_paths[idx: idx + batch_size]
+            buffers = helper.read_buffer_vect(batch_fp)
             embeddings.append(sess.run(self.embeddings, feed_dict={
-                self.image_paths_ph: batch,
+                self.image_buffers_ph: buffers,
                 self.is_training_ph: is_training,
                 self.global_step_ph: global_step
             }))

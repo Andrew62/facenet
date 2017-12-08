@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import numpy as np
 
 
 def get_current_timestamp():
@@ -24,3 +25,11 @@ def get_latest_dir(folder):
         if os.path.isdir(qualified):
             sub_folders.append(qualified)
     return list(reversed(sorted(sub_folders, key=os.path.getmtime)))[0]
+
+
+def read_buffer(fp):
+    with open(fp, 'rb') as inf:
+        return inf.read()
+
+
+read_buffer_vect = np.vectorize(read_buffer)

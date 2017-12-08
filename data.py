@@ -1,20 +1,18 @@
 
 import random
-from itertools import combinations
-
 import numpy as np
 import tensorflow as tf
-
 from utils import helper
+from itertools import combinations
 
 
-def read_one_image(fname, **kwargs):
+def read_one_image(buffer, **kwargs):
     """Reads one image given a filepath
 
     Parameters
     -----------
     fname : str
-        path to a JPEG, PNG, or GIF file
+        JPEG, PNG, or GIF file buffer
     img_shape : tuple
         (kwarg) shape of the eventual image. Default is (224, 224, 3)
     is_training : bool
@@ -27,11 +25,9 @@ def read_one_image(fname, **kwargs):
     """
     img_shape = kwargs.pop("image_shape", (224, 224, 3))
     is_training = kwargs.pop("is_training", False)
-    # read the image file
-    content = tf.read_file(fname)
 
     # decode buffer as an image
-    image = tf.image.decode_image(content, channels=img_shape[-1])
+    image = tf.image.decode_image(buffer, channels=img_shape[-1])
 
     image = tf.image.resize_image_with_crop_or_pad(image, img_shape[0], img_shape[1])
     if is_training:
