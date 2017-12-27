@@ -1,9 +1,10 @@
-
+import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 from networks import inception_resnet_v2
 from transfer import load_partial_model
 from argparse import ArgumentParser
+from data import Dataset
 
 
 def read_one_buffer(buffer, **kwargs):
@@ -15,6 +16,12 @@ def read_one_buffer(buffer, **kwargs):
     image.set_shape(img_shape)
     return tf.image.per_image_standardization(image)
 
+
+def load_buffer(fp):
+    with open(fp, 'rb') as inf:
+        return inf.read()
+
+
 def main():
 
     parser = ArgumentParser(description="export a facenet model that takes image buffers as input")
@@ -22,6 +29,10 @@ def main():
                         type=str)
     parser.add_argument("-o", "--out", help="location of the output checkpoint file",
                         type=str)
+    parser.add_argument("-i", "--input_faces", help="input faces json file",
+                        default="fixtures/faces.json")
+    parser.add_argument("-b", "--batch_size", help="batch size to use when generating embeddings", default=64,
+                        type=int)
 
     args = parser.parse_args()
 
@@ -41,11 +52,25 @@ def main():
         tf.add_to_collection("out_embeddings", embeddings)
 
     with tf.Session(graph=graph) as sess:
+        dataset = Dataset(args.input_faces)
         saver = load_partial_model(sess,
                                    graph,
                                    # forever excluding these scopes b/c of transfer learning
                                    ["InceptionResnetV2/AuxLogits", "RMSProp"],
-                                   args.checkpoint_file)
+                                   args.checkpoint_name)
+        all_images, image_ids = dataset.get_all_files()
+        all_embeddings = []
+        for idx in range(0, len(all_images), args.batch_size):
+            print("{0:0.1%}".format(idx  / len(all_images)))
+            batch = list(map(load_buffer, all_images[idx:idx+args.batch_size]))
+            all_embeddings.append(sess.run(embeddings, feed_dict={
+                input_buffers: batch
+            }))
+        all_embeddings = np.vstack(all_embeddings)        
+        np.savez(args.out + "_embeddings.npz",
+                 embeddings=all_embeddings,
+                 class_codes=np.array(image_ids))
+        
         saver.save(sess, args.out)
     print("exported to: {}".format(args.out))
     print("collection input_buffers contains input placeholder")

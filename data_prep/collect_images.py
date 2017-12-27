@@ -44,5 +44,6 @@ def main():
     n_collected = sum([len(v) for v in images.values()])
     print("Collected {0:,} images.".format(n_collected))
 
+    
 if __name__ == "__main__":
     main()
