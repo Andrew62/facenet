@@ -34,9 +34,11 @@ def model_train(args):
     graph = tf.Graph()
     with graph.as_default():
         image_paths_ph = tf.placeholder(tf.string, name="input_image_paths")
+        class_centers_ph = tf.placeholder(tf.float32, name="class_centers")
         global_step_ph = tf.placeholder(tf.int32, name="global_step")
         is_training_ph = tf.placeholder(tf.bool, name="is_training")
         network = FaceNet(image_paths_ph,
+                          class_centers_ph,
                           is_training_ph,
                           args.embedding_size,
                           global_step_ph,
@@ -70,15 +72,20 @@ def model_train(args):
                                                   args.batch_size,
                                                   True,
                                                   global_step)
-                triplets = network.get_triplets(image_paths, embeddings_np, classes)
+                triplets, centers = network.get_triplets(image_paths, embeddings_np, classes)
                 n_trips = triplets.shape[0]
                 trip_step = args.batch_size - (args.batch_size % 3)
-                for idx in range(0, n_trips, trip_step):
+                # need this var so we can insert centers
+                not_trip_step = trip_step // 3
+                for trip_idx in range(0, n_trips, trip_step):
+                    not_trip_idx = trip_idx // 3
                     feed_dict = {
-                        image_paths_ph: triplets[idx: idx + trip_step],
+                        image_paths_ph: triplets[trip_idx: trip_idx + trip_step],
+                        class_centers_ph: centers[not_trip_idx: not_trip_idx + not_trip_step],  # these var names man :/
                         is_training_ph: True,
                         global_step_ph: global_step
                     }
+                    # should one batch through triplets be one step or should it be left like this?
                     global_step += 1
                     batch_per_sec = (time.time() - start) / global_step
                     if global_step % 100 == 0:

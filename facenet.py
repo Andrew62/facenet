@@ -8,8 +8,16 @@ from networks import inception_resnet_v2
 
 
 class FaceNet(object):
-    def __init__(self, image_paths_ph, is_training_ph, embedding_size, global_step_ph, init_learning_rate, image_shape):
+    def __init__(self,
+                 image_paths_ph,
+                 class_centers_ph,
+                 is_training_ph,
+                 embedding_size,
+                 global_step_ph,
+                 init_learning_rate,
+                 image_shape):
         self.is_training_ph = is_training_ph
+        self.class_centers_ph = class_centers_ph
         self.global_step_ph = global_step_ph
         self.image_paths_ph = image_paths_ph
 
@@ -36,8 +44,10 @@ class FaceNet(object):
         anchors, positives, negatives = tf.unstack(tf.reshape(self.embeddings, [-1, 3, embedding_size]), 3, 1)
         triplet_loss = self.facenet_loss(anchors, positives, negatives)
         tf.summary.scalar("Triplet_Loss", triplet_loss)
+        center_loss = self.center_loss(anchors, self.class_centers_ph)
+        tf.summary.scalar("Center_Loss", center_loss)
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        self.total_loss = tf.add_n([triplet_loss] + regularization_loss, name="total_loss")
+        self.total_loss = tf.add_n([triplet_loss, center_loss] + regularization_loss, name="total_loss")
         learning_rate = tf.train.exponential_decay(init_learning_rate,
                                                    decay_rate=0.96,  # so far the best run set this to 0.96
                                                    decay_steps=250,
@@ -62,6 +72,16 @@ class FaceNet(object):
         loss = positive_dist - negative_dist + alpha
         # reduce mean since we could have variable batch size
         return tf.reduce_mean(tf.maximum(loss, 0.0), 0)
+
+    @staticmethod
+    def center_loss(embeddings, centers, lam=1.0):
+        """
+        https://ydwen.github.io/papers/WenECCV16.pdf
+
+        lambda/2 * sum(||x_i - cy_i||**2)
+        """
+        # reduce mean here for the same reason as above
+        return tf.multiply(lam/2, tf.reduce_mean(tf.reduce_sum(tf.pow(tf.subtract(embeddings, centers), 2), 1), 0))
 
     @staticmethod
     def attalos_loss(anchors, positives, negatives):
@@ -108,9 +128,13 @@ class FaceNet(object):
         unique_ids = np.unique(class_ids)
         out_fps = []
 
+        # collecting centers here to feed in later
+        class_centers = []
+
         # do this to make the comparison below to check for the same class
         for class_id in unique_ids:
             class_vectors = embeddings[class_ids == class_id, :]
+            class_center = np.mean(class_vectors, axis=0, dtype=np.float32)  # make this dtype consistent with tf
             class_fps = image_paths[class_ids == class_id]
             assert class_vectors.shape[0] == class_fps.shape[0], "embedding and file name mismatch"
             out_of_class_vectors = embeddings[class_ids != class_id, :]
@@ -129,8 +153,9 @@ class FaceNet(object):
                     # input is a list of indicies
                     neg_idx = np.random.choice(valid_negatives)
                     out_fps.extend([class_fps[anchor_idx], class_fps[pos_idx], out_of_class_fps[neg_idx]])
+                    class_centers.append(class_center)
         print("Generated {0:,} triplets".format(len(out_fps) // 3))
-        return np.asarray(out_fps)
+        return np.asarray(out_fps), np.vstack(class_centers)
 
     def inference(self,
                   sess,
