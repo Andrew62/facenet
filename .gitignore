@@ -5,3 +5,8 @@ checkpoints/
 __pycache__/
 embeddings/
 .ipynb_checkpoints/
+.DS_Store
+Dockerfile.*
+Inference.ipynb
+Serving Export.ipynb
+
