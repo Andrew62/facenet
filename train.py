@@ -51,10 +51,12 @@ def model_train(args):
     with tf.Session(graph=graph, config=config).as_default() as sess:
         summary_writer = tf.summary.FileWriter(args.checkpoint_dir,
                                                graph=graph)
+        
+        # load partial
         saver = load_partial_model(sess,
-                                   graph,
-                                   checkpoint_exclude_scopes,
-                                   args.pretrained_base_model)
+                                  graph,
+                                  checkpoint_exclude_scopes,
+                                  args.pretrained_base_model)
 
         global_step = 0
         start = time.time()
@@ -62,6 +64,9 @@ def model_train(args):
                           n_identities_per=args.identities_per_batch,
                           n_images_per=args.n_images_per_iden,
                           n_eval_pairs=args.n_validation)
+
+        # write this to disc early in case we want to inspect embedding checkpoints
+        helper.to_json(dataset.idx_to_name, os.path.join(args.checkpoint_dir, "idx_to_name.json"))
         print("Starting loop")
         while global_step < args.train_steps:
             try:
@@ -127,10 +132,11 @@ def model_train(args):
             except KeyboardInterrupt:
                 print("Keyboard Interrupt. Exiting.")
                 break
+        print("Saving model...")
         saver.save(sess, os.path.join(args.checkpoint_dir, 'facenet'), global_step=global_step)
-        helper.to_json(dataset.idx_to_name, os.path.join(args.checkpoint_dir, "idx_to_name.json"))
-        process_all_images(dataset, network, sess, global_step, args)
         print("Saved to: {0}".format(args.checkpoint_dir))
+        print("Exporting dataset embeddings...")
+        process_all_images(dataset, network, sess, global_step, args)
     print("Done")
 
 
@@ -148,9 +154,14 @@ def main():
     parser.add_argument("-v", "--n_validation", default=3000, type=int)
     parser.add_argument("-p", "--pretrained_base_model",
                         default="checkpoints/pretrained/inception_resnet_v2_2016_08_30.ckpt")
-    parser.add_argument("-s", "--train_steps", default=65000, type=int)
+    parser.add_argument("-s", "--train_steps", default=40000, type=int)
 
     args = parser.parse_args()
+
+    print("Parameters:")
+    for prop in dir(args):
+        if not prop.startswith("_"):
+            print("{0}\t{1}".format(prop, getattr(args, prop)))
     model_train(args)
 
 
