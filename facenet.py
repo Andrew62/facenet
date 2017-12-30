@@ -44,10 +44,8 @@ class FaceNet(object):
         anchors, positives, negatives = tf.unstack(tf.reshape(self.embeddings, [-1, 3, embedding_size]), 3, 1)
         triplet_loss = self.facenet_loss(anchors, positives, negatives)
         tf.summary.scalar("Triplet_Loss", triplet_loss)
-        center_loss = self.center_loss(anchors, self.class_centers_ph)
-        tf.summary.scalar("Center_Loss", center_loss)
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        self.total_loss = tf.add_n([triplet_loss, center_loss] + regularization_loss, name="total_loss")
+        self.total_loss = tf.add_n([triplet_loss] + regularization_loss, name="total_loss")
         learning_rate = tf.train.exponential_decay(init_learning_rate,
                                                    decay_rate=0.96,  # so far the best run set this to 0.96
                                                    decay_steps=250,
@@ -74,14 +72,14 @@ class FaceNet(object):
         return tf.reduce_mean(tf.maximum(loss, 0.0), 0)
 
     @staticmethod
-    def center_loss(embeddings, centers, lam=1.0):
+    def center_loss(embeddings, centers, alpha=0.5):
         """
         https://ydwen.github.io/papers/WenECCV16.pdf
 
         lambda/2 * sum(||x_i - cy_i||**2)
         """
         # reduce mean here for the same reason as above
-        return tf.multiply(lam/2, tf.reduce_mean(tf.reduce_sum(tf.pow(tf.subtract(embeddings, centers), 2), 1), 0))
+        return alpha * tf.reduce_mean(tf.pow(tf.subtract(embeddings, centers), 2))
 
     @staticmethod
     def attalos_loss(anchors, positives, negatives):
