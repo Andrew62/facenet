@@ -10,14 +10,14 @@ from networks import inception_resnet_v2
 class FaceNet(object):
     def __init__(self,
                  image_paths_ph,
-                 class_centers_ph,
                  is_training_ph,
                  embedding_size,
                  global_step_ph,
                  init_learning_rate,
-                 image_shape):
+                 image_shape,
+                 decay_steps,
+                 decay_rate):
         self.is_training_ph = is_training_ph
-        self.class_centers_ph = class_centers_ph
         self.global_step_ph = global_step_ph
         self.image_paths_ph = image_paths_ph
 
@@ -36,7 +36,8 @@ class FaceNet(object):
         with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
             prelogits, endpoints = inception_resnet_v2.inception_resnet_v2(images,
                                                                            is_training=self.is_training_ph,
-                                                                           num_classes=embedding_size)
+                                                                           num_classes=embedding_size,
+                                                                           dropout_keep_prob=1.0)
         self.embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name="l2_embedding")
 
         # don't run this until we've already done a batch pass of faces. We
@@ -47,8 +48,8 @@ class FaceNet(object):
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         self.total_loss = tf.add_n([triplet_loss] + regularization_loss, name="total_loss")
         learning_rate = tf.train.exponential_decay(init_learning_rate,
-                                                   decay_rate=0.96,  # so far the best run set this to 0.96
-                                                   decay_steps=250,
+                                                   decay_rate=decay_rate,  # so far the best run set this to 0.96
+                                                   decay_steps=decay_steps,
                                                    staircase=True,
                                                    global_step=self.global_step_ph)
         tf.summary.scalar("Learning_Rate", learning_rate)
@@ -126,13 +127,9 @@ class FaceNet(object):
         unique_ids = np.unique(class_ids)
         out_fps = []
 
-        # collecting centers here to feed in later
-        class_centers = []
-
         # do this to make the comparison below to check for the same class
         for class_id in unique_ids:
             class_vectors = embeddings[class_ids == class_id, :]
-            class_center = np.mean(class_vectors, axis=0, dtype=np.float32)  # make this dtype consistent with tf
             class_fps = image_paths[class_ids == class_id]
             assert class_vectors.shape[0] == class_fps.shape[0], "embedding and file name mismatch"
             out_of_class_vectors = embeddings[class_ids != class_id, :]
@@ -151,9 +148,8 @@ class FaceNet(object):
                     # input is a list of indicies
                     neg_idx = np.random.choice(valid_negatives)
                     out_fps.extend([class_fps[anchor_idx], class_fps[pos_idx], out_of_class_fps[neg_idx]])
-                    class_centers.append(class_center)
         print("Generated {0:,} triplets".format(len(out_fps) // 3))
-        return np.asarray(out_fps), np.vstack(class_centers)
+        return np.asarray(out_fps)
 
     def inference(self,
                   sess,

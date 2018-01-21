@@ -1,9 +1,6 @@
 import os
-import csv
 import json
 import argparse
-from random import choice
-from itertools import combinations
 
 
 def main():
@@ -16,6 +13,8 @@ def main():
                         default=[".jpeg", ".gif", ".jpg", ".png"], nargs="+")
     parser.add_argument("-m", "--min_examples", help="minimum number of images per identity",
                         default=2, type=int)
+    parser.add_argument("-x", "--exclude", help="directories to exclude",
+                        nargs="+")
     args = parser.parse_args()
 
     # store all images by class
@@ -24,6 +23,9 @@ def main():
     # collect all images files first so we can sort
     # the class names alphabetically then get their index
     for d, _, files in os.walk(args.in_dir):
+        if any(map(lambda x: x in d, args.exclude)):
+            print("Skipping " + d)
+            continue
         for f in files:
             if any(map(lambda x: f.endswith(x), args.exts)):
                 class_name = os.path.basename(d)

@@ -18,7 +18,7 @@ def process_all_images(dataset, network, sess, global_step, args):
                                        args.batch_size,
                                        False,
                                        global_step)
-    np.savez(os.path.join(args.checkpoint_dir, "embeddings.npz"),
+    np.savez(os.path.join(args.checkpoint_dir, "embeddings_{0}.npz".format(global_step)),
              embeddings=all_embeddings,
              class_codes=image_ids_np)
     return all_embeddings, image_ids_np
@@ -30,20 +30,29 @@ def model_train(args):
     checkpoint_exclude_scopes = ["InceptionResnetV2/Logits", "InceptionResnetV2/AuxLogits", "RMSProp"]
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
+    print("Parameters:")
+    with open(os.path.join(args.checkpoint_dir, "training_params.txt"), 'w') as target:
+        for prop in dir(args):
+            if not prop.startswith("_"):
+                line = "{0}\t{1}".format(prop, getattr(args, prop))
+                print(line)
+                target.write(line + '\n')
+
     print("Building graph")
     graph = tf.Graph()
     with graph.as_default():
         image_paths_ph = tf.placeholder(tf.string, name="input_image_paths")
-        class_centers_ph = tf.placeholder(tf.float32, name="class_centers")
         global_step_ph = tf.placeholder(tf.int32, name="global_step")
         is_training_ph = tf.placeholder(tf.bool, name="is_training")
+
         network = FaceNet(image_paths_ph,
-                          class_centers_ph,
                           is_training_ph,
                           args.embedding_size,
                           global_step_ph,
                           args.learning_rate,
-                          image_shape)
+                          image_shape,
+                          args.decay_steps,
+                          args.decay_rate)
 
     print("Starting session")
     config = tf.ConfigProto()
@@ -54,20 +63,21 @@ def model_train(args):
         
         # load partial
         saver = load_partial_model(sess,
-                                  graph,
-                                  checkpoint_exclude_scopes,
-                                  args.pretrained_base_model)
+                                   graph,
+                                   checkpoint_exclude_scopes,
+                                   args.pretrained_base_model)
 
         global_step = 0
         start = time.time()
         dataset = Dataset(args.input_faces,
                           n_identities_per=args.identities_per_batch,
-                          n_images_per=args.n_images_per_iden,
-                          n_eval_pairs=args.n_validation)
+                          n_images_per=args.n_images_per_iden)
+        lfw = Dataset(args.lfw, n_eval_pairs=args.n_validation)
 
         # write this to disc early in case we want to inspect embedding checkpoints
-        helper.to_json(dataset.idx_to_name, os.path.join(args.checkpoint_dir, "idx_to_name.json"))
+        helper.to_json(lfw.idx_to_name, os.path.join(args.checkpoint_dir, "idx_to_name.json"))
         print("Starting loop")
+        accuracy_collection = []
         while global_step < args.train_steps:
             try:
                 # embed and collect all current face weights
@@ -77,16 +87,13 @@ def model_train(args):
                                                   args.batch_size,
                                                   True,
                                                   global_step)
-                triplets, centers = network.get_triplets(image_paths, embeddings_np, classes)
+                triplets = network.get_triplets(image_paths, embeddings_np, classes)
                 n_trips = triplets.shape[0]
                 trip_step = args.batch_size - (args.batch_size % 3)
                 # need this var so we can insert centers
-                not_trip_step = trip_step // 3
                 for trip_idx in range(0, n_trips, trip_step):
-                    not_trip_idx = trip_idx // 3
                     feed_dict = {
                         image_paths_ph: triplets[trip_idx: trip_idx + trip_step],
-                        class_centers_ph: centers[not_trip_idx: not_trip_idx + not_trip_step],  # these var names man :/
                         is_training_ph: True,
                         global_step_ph: global_step
                     }
@@ -107,7 +114,7 @@ def model_train(args):
 
                         print("Evaluating")
                         start = time.time()
-                        evaluation_set = dataset.get_evaluation_batch()
+                        evaluation_set = lfw.get_evaluation_batch()
                         (threshold, accuracy, precision, recall, f1) = network.evaluate(sess,
                                                                                         evaluation_set,
                                                                                         global_step,
@@ -117,17 +124,22 @@ def model_train(args):
                         print("Accuracy: {0:0.2f}\tThreshold: {1:0.2f}\t".format(accuracy, threshold),
                               "Precision: {0:0.2f}\tRecall: {1:0.2f}\tF-1: {2:0.2f}\t".format(precision, recall, f1),
                               "Elapsed time: {0:0.2f} secs".format(elapsed))
+                        accuracy_collection.append({"step": global_step, "accuracy": accuracy})
+                        helper.to_json(accuracy_collection, os.path.join(args.checkpoint_dir, "accuracy.json"))
 
-                        all_embeddings, image_ids = process_all_images(dataset, network, sess, global_step, args)
+                        all_embeddings, image_ids = process_all_images(lfw, network, sess, global_step, args)
 
                         for name in ['andrew', 'erin']:
-                            person_embed = all_embeddings[image_ids == dataset.name_to_idx[name], :]
+                            person_embed = all_embeddings[image_ids == lfw.name_to_idx[name], :]
                             sim = np.dot(all_embeddings, person_embed[0])
                             sorted_values = np.argsort(sim)[::-1]
                             print("Similar to {0}".format(name.title()))
                             for pls_make_functions in sorted_values[1:6]:
-                                print("\t{0} ({1:0.5f})".format(dataset.idx_to_name[image_ids[pls_make_functions]],
-                                                                sim[pls_make_functions]))
+                                sv = sim[pls_make_functions]
+                                if np.isnan(sv) or sv == 0:
+                                    raise ValueError("Comparison value is {0}. Aborting".format(sv))
+                                print("\t{0} ({1:0.5f})".format(lfw.idx_to_name[image_ids[pls_make_functions]],
+                                                                sv))
 
             except KeyboardInterrupt:
                 print("Keyboard Interrupt. Exiting.")
@@ -136,7 +148,8 @@ def model_train(args):
         saver.save(sess, os.path.join(args.checkpoint_dir, 'facenet'), global_step=global_step)
         print("Saved to: {0}".format(args.checkpoint_dir))
         print("Exporting dataset embeddings...")
-        process_all_images(dataset, network, sess, global_step, args)
+        process_all_images(lfw, network, sess, global_step, args)
+        helper.to_json(accuracy_collection, os.path.join(args.checkpoint_dir, "accuracy.json"))
     print("Done")
 
 
@@ -146,22 +159,21 @@ def main():
                         default="fixtures/faces.json")
     parser.add_argument("-c", "--checkpoint_dir", help="location to write training checkpoints",
                         default="checkpoints/inception_resnet_v2/" + helper.get_current_timestamp())
-    parser.add_argument("-b", "--batch_size", default=64, type=int)
+    parser.add_argument("-b", "--batch_size", default=80, type=int)
     parser.add_argument("-e", "--embedding_size", default=128, type=int)
     parser.add_argument("-l", "--learning_rate", default=0.01, type=float)
     parser.add_argument("-d", "--identities_per_batch", default=100, type=int)
     parser.add_argument("-n", "--n_images_per_iden", default=25, type=int)
-    parser.add_argument("-v", "--n_validation", default=3000, type=int)
+    parser.add_argument("-v", "--n_validation", default=10000, type=int)
     parser.add_argument("-p", "--pretrained_base_model",
                         default="checkpoints/pretrained/inception_resnet_v2_2016_08_30.ckpt")
     parser.add_argument("-s", "--train_steps", default=40000, type=int)
+    parser.add_argument("--decay_steps", default=1000, type=int)
+    parser.add_argument("--decay_rate", default=0.98, type=float)
+    parser.add_argument("-f", "--lfw", default="fixtures/lfw.json", type=str)
 
     args = parser.parse_args()
 
-    print("Parameters:")
-    for prop in dir(args):
-        if not prop.startswith("_"):
-            print("{0}\t{1}".format(prop, getattr(args, prop)))
     model_train(args)
 
 

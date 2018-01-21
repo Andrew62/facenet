@@ -9,4 +9,4 @@ embeddings/
 Dockerfile.*
 Inference.ipynb
 Serving Export.ipynb
-
+Collect Youtube.ipynb
