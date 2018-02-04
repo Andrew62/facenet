@@ -10,7 +10,7 @@ from utils import helper
 
 class FaceNet(object):
     def __init__(self,
-                 image_paths_ph,
+                 image_buffers_ph,
                  is_training_ph,
                  embedding_size,
                  global_step_ph,
