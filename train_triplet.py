@@ -41,11 +41,10 @@ def model_train(args):
     print("Building graph")
     graph = tf.Graph()
     with graph.as_default():
-        image_paths_ph = tf.placeholder(tf.string, name="input_image_paths")
+        image_buffers_ph = tf.placeholder(tf.string, name="input_image_buffers")
         global_step_ph = tf.placeholder(tf.int32, name="global_step")
         is_training_ph = tf.placeholder(tf.bool, name="is_training")
-
-        network = FaceNet(image_paths_ph,
+        network = FaceNet(image_buffers_ph,
                           is_training_ph,
                           args.embedding_size,
                           global_step_ph,
@@ -90,10 +89,10 @@ def model_train(args):
                 triplets = network.get_triplets(image_paths, embeddings_np, classes)
                 n_trips = triplets.shape[0]
                 trip_step = args.batch_size - (args.batch_size % 3)
-                # need this var so we can insert centers
-                for trip_idx in range(0, n_trips, trip_step):
+                for idx in range(0, n_trips, trip_step):
+                    trip_buffers = helper.read_buffer_vect(triplets[idx: idx + trip_step])
                     feed_dict = {
-                        image_paths_ph: triplets[trip_idx: trip_idx + trip_step],
+                        image_buffers_ph: trip_buffers,
                         is_training_ph: True,
                         global_step_ph: global_step
                     }
