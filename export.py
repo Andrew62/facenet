@@ -26,7 +26,7 @@ def main():
 
     parser = ArgumentParser(description="export a facenet model that takes image buffers as input")
     parser.add_argument("-c", "--checkpoint_name", help="checkpoint name to load. Should prob not have an extension",
-                        type=str)
+                        type=str, required=True)
     parser.add_argument("-o", "--out", help="location of the output checkpoint file",
                         type=str)
     parser.add_argument("-i", "--input_faces", help="input faces json file",
@@ -51,7 +51,8 @@ def main():
         tf.add_to_collection("input_buffers", input_buffers)
         tf.add_to_collection("out_embeddings", embeddings)
 
-    with tf.Session(graph=graph) as sess:
+    config = tf.ConfigProto(device_count={"GPU":0})
+    with tf.Session(graph=graph, config=config) as sess:
         dataset = Dataset(args.input_faces)
         saver = load_partial_model(sess,
                                    graph,

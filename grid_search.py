@@ -1,4 +1,4 @@
-from train import model_train
+from train_triplet import model_train
 from utils import helper
 from itertools import product
 
