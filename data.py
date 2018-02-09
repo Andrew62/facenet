@@ -29,7 +29,8 @@ def read_one_image(buffer, **kwargs):
     # decode buffer as an image
     image = tf.image.decode_image(buffer, channels=img_shape[-1])
 
-    image = tf.image.resize_image_with_crop_or_pad(image, img_shape[0], img_shape[1])
+    image = tf.image.resize_bicubic(tf.expand_dims(image, 0), (img_shape[0], img_shape[1]))
+    image = tf.squeeze(image, [0])
     if is_training:
         up_down = tf.random_uniform([], minval=0, maxval=1)
         image = tf.cond(up_down > 0.5,

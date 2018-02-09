@@ -15,9 +15,8 @@ class FaceNet(object):
                  embedding_size,
                  global_step_ph,
                  init_learning_rate,
-                 image_shape,
-                 decay_steps,
-                 decay_rate):
+                 image_shape):
+
         self.is_training_ph = is_training_ph
         self.global_step_ph = global_step_ph
         self.image_buffers_ph = image_buffers_ph
@@ -35,11 +34,23 @@ class FaceNet(object):
 
         # do the network thing here
         with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
-            prelogits, endpoints = inception_resnet_v2.inception_resnet_v2(images,
-                                                                           is_training=self.is_training_ph,
-                                                                           num_classes=embedding_size,
-                                                                           dropout_keep_prob=1.0)
-        self.embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name="l2_embedding")
+            logits, endpoints = inception_resnet_v2.inception_resnet_v2(images,
+                                                                        is_training=self.is_training_ph,
+                                                                        num_classes=2048,
+                                                                        dropout_keep_prob=1.0)
+        with tf.variable_scope("face_embedding"):
+            weights_1 = tf.get_variable("weights_1", shape=(2048, 2048),
+                                        initializer=tf.contrib.layers.xavier_initializer())
+            layer_1 = tf.nn.relu(tf.matmul(logits, weights_1))
+
+            layer_1_dropout = tf.cond(self.is_training_ph,
+                                      true_fn=lambda: tf.nn.dropout(layer_1, keep_prob=0.8),
+                                      false_fn=lambda: layer_1)
+            weights_2 = tf.get_variable("weights_2", shape=(2048, embedding_size),
+                                        initializer=tf.contrib.layers.xavier_initializer())
+            layer_2 = tf.matmul(layer_1_dropout, weights_2)
+
+        self.embeddings = tf.nn.l2_normalize(layer_2, 1, 1e-10, name="l2_embedding")
 
         # don't run this until we've already done a batch pass of faces. We
         # compute the triplets offline, stack, and run through again
@@ -48,13 +59,9 @@ class FaceNet(object):
         tf.summary.scalar("Triplet_Loss", triplet_loss)
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         self.total_loss = tf.add_n([triplet_loss] + regularization_loss, name="total_loss")
-        learning_rate = tf.train.exponential_decay(init_learning_rate,
-                                                   decay_rate=decay_rate,  # so far the best run set this to 0.96
-                                                   decay_steps=decay_steps,
-                                                   staircase=True,
-                                                   global_step=self.global_step_ph)
-        tf.summary.scalar("Learning_Rate", learning_rate)
-        self.optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(self.total_loss)
+        to_train = [weights_1, weights_2] + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                                                              scope="InceptionResnetV2/Logits")
+        self.optimizer = tf.train.AdadeltaOptimizer(init_learning_rate).minimize(self.total_loss, var_list=to_train)
         tf.summary.scalar("Total_Loss", self.total_loss)
         self.merged_summaries = tf.summary.merge_all()
 

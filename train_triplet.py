@@ -27,7 +27,9 @@ def process_all_images(dataset, network, sess, global_step, args):
 def model_train(args):
     image_shape = (160, 160, 3)
     thresholds = np.arange(0, 4, 0.1)
-    checkpoint_exclude_scopes = ["InceptionResnetV2/Logits", "InceptionResnetV2/AuxLogits", "RMSProp"]
+    checkpoint_exclude_scopes = ["InceptionResnetV2/Logits",
+                                 "InceptionResnetV2/AuxLogits",
+                                 "RMSProp", "face_embedding", "Adadelta"]
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
     print("Parameters:")
@@ -49,9 +51,7 @@ def model_train(args):
                           args.embedding_size,
                           global_step_ph,
                           args.learning_rate,
-                          image_shape,
-                          args.decay_steps,
-                          args.decay_rate)
+                          image_shape)
 
     print("Starting session")
     config = tf.ConfigProto()
@@ -105,9 +105,8 @@ def model_train(args):
                         summary_writer.add_summary(summary, global_step)
                     else:
                         _, loss = sess.run([network.optimizer, network.total_loss], feed_dict=feed_dict)
-                    print("global step: {0:,}\tloss: {1:0.5f}\tstep/sec: {2:0.2f}".format(global_step,
-                                                                                          loss,
-                                                                                          batch_per_sec))
+                    print("model: {0}\tlobal step: {1:,}\t".format(os.path.basename(args.checkpoint_dir), global_step),
+                          "loss: {1:0.5f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec))
                     if global_step % 1000 == 0:
                         saver.save(sess, args.checkpoint_dir + '/facenet', global_step=global_step)
 
