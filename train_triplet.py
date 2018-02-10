@@ -25,7 +25,7 @@ def process_all_images(dataset, network, sess, global_step, args):
 
 
 def model_train(args):
-    image_shape = (160, 160, 3)
+    image_shape = (299, 299, 3)
     thresholds = np.arange(0, 4, 0.1)
     checkpoint_exclude_scopes = ["InceptionResnetV2/Logits",
                                  "InceptionResnetV2/AuxLogits",

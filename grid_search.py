@@ -7,8 +7,8 @@ class ModelParams(object):
     def __init__(self, **kwargs):
         self.input_faces = kwargs.pop("input_faces", "fixtures/faces.json")
         self.checkpoint_dir = kwargs.pop("checkpoint_dir")
-        self.batch_size = 80
-        self.embedding_size = 128
+        self.batch_size = 32
+        self.embedding_size = kwargs.pop("embedding_size", 128)
         self.learning_rate = kwargs.pop("learning_rate", 0.01)
         self.identities_per_batch = kwargs.pop("identities_per_batch", 100)
         self.n_images_per_iden = kwargs.pop("n_images_per_iden", 25)
@@ -19,17 +19,17 @@ class ModelParams(object):
 
 
 def main():
-    learning_rates = [0.01, 0.001]
-    identities_per_batch = [100, 200]
-    train_steps = [25000, 35000, 40000]
+#     learning_rates = [0.01, 0.001, 0.1]
+#     identities_per_batch = [100, 200]
 
-    for lr, ipb, ts in product(learning_rates, identities_per_batch, train_steps):
-        checkpoint_dir = "checkpoints/multiple_lr/" + helper.get_current_timestamp()
-        params = ModelParams(learning_rate=lr,
-                             identities_per_batch=ipb,
-                             train_steps=ts,
-                             checkpoint_dir=checkpoint_dir)
-        model_train(params)
+#     for lr, ipb in product(learning_rates, identities_per_batch):
+    checkpoint_dir = "checkpoints/multiple_lr/" + helper.get_current_timestamp()
+    params = ModelParams(learning_rate=0.01,
+                         identities_per_batch=100,
+                         train_steps=50000,
+                         checkpoint_dir=checkpoint_dir,
+                         embedding_size=200)
+    model_train(params)
 
 
 if __name__ == "__main__":
