@@ -1,10 +1,11 @@
+import json
 import numpy as np
 import tensorflow as tf
+from data import Dataset
+from argparse import ArgumentParser
 from tensorflow.contrib import slim
 from networks import inception_resnet_v2
 from transfer import load_partial_model
-from argparse import ArgumentParser
-from data import Dataset
 
 
 def read_one_buffer(buffer, **kwargs):
@@ -63,7 +64,7 @@ def main():
         tf.add_to_collection("input_buffers", input_buffers)
         tf.add_to_collection("out_embeddings", embeddings)
 
-    config = tf.ConfigProto(device_count={"GPU":1})
+    config = tf.ConfigProto(device_count={"GPU": 1})
     with tf.Session(graph=graph, config=config) as sess:
         dataset = Dataset(args.input_faces)
         saver = load_partial_model(sess,
@@ -74,7 +75,7 @@ def main():
         all_images, image_ids = dataset.get_all_files()
         all_embeddings = []
         for idx in range(0, len(all_images), args.batch_size):
-            print("{0:0.1%}".format(idx  / len(all_images)))
+            print("{0:0.1%}".format(idx / len(all_images)))
             batch = list(map(load_buffer, all_images[idx:idx+args.batch_size]))
             all_embeddings.append(sess.run(embeddings, feed_dict={
                 input_buffers: batch
@@ -85,6 +86,8 @@ def main():
                  class_codes=np.array(image_ids))
         
         saver.save(sess, args.out)
+    with open(args.out + "idx_to_name.json", 'w') as target:
+        json.dump(dataset.idx_to_name, target, indent=2)
     print("exported to: {}".format(args.out))
     print("collection input_buffers contains input placeholder")
     print("collection out_embeddings contains embedding result")

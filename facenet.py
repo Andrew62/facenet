@@ -6,6 +6,7 @@ from data import read_one_image
 from tensorflow.contrib import slim
 from networks import inception_resnet_v2
 from utils import helper
+import losses
 
 
 class FaceNet(object):
@@ -15,7 +16,8 @@ class FaceNet(object):
                  embedding_size,
                  global_step_ph,
                  init_learning_rate,
-                 image_shape):
+                 image_shape,
+                 loss_func="face_net"):
 
         self.is_training_ph = is_training_ph
         self.global_step_ph = global_step_ph
@@ -34,73 +36,55 @@ class FaceNet(object):
 
         # do the network thing here
         with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
-            logits, endpoints = inception_resnet_v2.inception_resnet_v2(images,
+            _, endpoints = inception_resnet_v2.inception_resnet_v2(images,
                                                                         is_training=self.is_training_ph,
-                                                                        num_classes=2048,
+                                                                        num_classes=1001,
                                                                         dropout_keep_prob=1.0)
+            prelogits = endpoints["PreLogitsFlatten"]
+
         with tf.variable_scope("face_embedding"):
-            weights_1 = tf.get_variable("weights_1", shape=(2048, 2048),
+            weights_1 = tf.get_variable("weights_1", shape=(1536, 1024),
                                         initializer=tf.contrib.layers.xavier_initializer())
-            layer_1 = tf.nn.relu(tf.matmul(logits, weights_1))
+            layer_1 = tf.nn.relu(tf.matmul(prelogits, weights_1))
 
             layer_1_dropout = tf.cond(self.is_training_ph,
                                       true_fn=lambda: tf.nn.dropout(layer_1, keep_prob=0.8),
                                       false_fn=lambda: layer_1)
-            weights_2 = tf.get_variable("weights_2", shape=(2048, embedding_size),
+            weights_2 = tf.get_variable("weights_2", shape=(1024, embedding_size),
                                         initializer=tf.contrib.layers.xavier_initializer())
             layer_2 = tf.matmul(layer_1_dropout, weights_2)
 
         self.embeddings = tf.nn.l2_normalize(layer_2, 1, 1e-10, name="l2_embedding")
 
-        # don't run this until we've already done a batch pass of faces. We
-        # compute the triplets offline, stack, and run through again
-        anchors, positives, negatives = tf.unstack(tf.reshape(self.embeddings, [-1, 3, embedding_size]), 3, 1)
-        triplet_loss = self.facenet_loss(anchors, positives, negatives)
+        if loss_func == "face_net":
+            # don't run this until we've already done a batch pass of faces. We
+            # compute the triplets offline, stack, and run through again
+            anchors, positives, negatives = tf.unstack(tf.reshape(self.embeddings, [-1, 3, embedding_size]), 3, 1)
+            triplet_loss = losses.facenet_loss(anchors, positives, negatives)
+        elif loss_func == "lossless":
+            activated_embeddings = tf.nn.sigmoid(self.embeddings)
+            anchors, positives, negatives = tf.unstack(tf.reshape(activated_embeddings, [-1, 3, embedding_size]), 3, 1)
+            triplet_loss = losses.lossless_triple(anchors, positives, negatives, embedding_size, embedding_size)
+        else:
+            raise Exception("{} is not a valid loss function")
+
         tf.summary.scalar("Triplet_Loss", triplet_loss)
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         self.total_loss = tf.add_n([triplet_loss] + regularization_loss, name="total_loss")
-        to_train = [weights_1, weights_2] + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
-                                                              scope="InceptionResnetV2/Logits")
-        self.optimizer = tf.train.AdadeltaOptimizer(init_learning_rate).minimize(self.total_loss, var_list=to_train)
+        # want to train these vars with a higher learning rate
+        # major_train = [weights_1, weights_2] + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+        #                                                          scope="InceptionResnetV2/Logits")
+        major_train = [weights_1, weights_2]
+        self.optimizer = tf.train.AdadeltaOptimizer(init_learning_rate).minimize(self.total_loss,
+                                                                                 var_list=major_train)
+
+        # want to make more minor updates here
+        # minor_train = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="InceptionResnetV2\/(?!Logits).*")
+        # self.little_optimizer = tf.train.AdadeltaOptimizer(0.00001).minimize(self.total_loss, var_list=minor_train)
+        self.little_optimizer = tf.constant(0, tf.int8)
+
         tf.summary.scalar("Total_Loss", self.total_loss)
         self.merged_summaries = tf.summary.merge_all()
-
-    @staticmethod
-    def facenet_loss(anchors, positives, negatives, alpha=0.2):
-        """
-        Loss function pulled form FaceNet paper. Loss function is
-            ave([||f(anchor) - f(positive))||**2] - [||f(anchor) - f(negative)||**2] + alpha)
-        """
-        # reduce row-wise
-        positive_dist = tf.reduce_sum(tf.pow(anchors - positives, 2), 1)
-        tf.summary.scalar("Positive_Distance", tf.reduce_mean(positive_dist))
-        negative_dist = tf.reduce_sum(tf.pow(anchors - negatives, 2), 1)
-        tf.summary.scalar("Negative_Distance", tf.reduce_mean(negative_dist))
-        loss = positive_dist - negative_dist + alpha
-        # reduce mean since we could have variable batch size
-        return tf.reduce_mean(tf.maximum(loss, 0.0), 0)
-
-    @staticmethod
-    def center_loss(embeddings, centers, alpha=0.5):
-        """
-        https://ydwen.github.io/papers/WenECCV16.pdf
-
-        lambda/2 * sum(||x_i - cy_i||**2)
-        """
-        # reduce mean here for the same reason as above
-        return alpha * tf.reduce_mean(tf.pow(tf.subtract(embeddings, centers), 2))
-
-    @staticmethod
-    def attalos_loss(anchors, positives, negatives):
-        """Pulled from another embedding project: https://github.com/Lab41/attalos
-        """
-        def meanlogsig(a, b):
-            reduction_indices = 2
-            return tf.reduce_mean(
-                tf.log(tf.sigmoid(tf.reduce_sum(a * b, reduction_indices=reduction_indices))))
-        pos_loss = meanlogsig(anchors, positives)
-        neg_loss = meanlogsig(-anchors, negatives)
-        return -(pos_loss + neg_loss)
 
     def evaluate(self,
                  sess,

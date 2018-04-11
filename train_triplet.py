@@ -27,9 +27,10 @@ def process_all_images(dataset, network, sess, global_step, args):
 def model_train(args):
     image_shape = (299, 299, 3)
     thresholds = np.arange(0, 4, 0.1)
-    checkpoint_exclude_scopes = ["InceptionResnetV2/Logits",
-                                 "InceptionResnetV2/AuxLogits",
-                                 "RMSProp", "face_embedding", "Adadelta"]
+    # checkpoint_exclude_scopes = ["InceptionResnetV2/Logits",
+    #                              "InceptionResnetV2/AuxLogits",
+    #                              "RMSProp", "face_embedding", "Adadelta", "Adam", "beta"]
+    checkpoint_exclude_scopes = ["face_embedding"]
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
     print("Parameters:")
@@ -51,7 +52,8 @@ def model_train(args):
                           args.embedding_size,
                           global_step_ph,
                           args.learning_rate,
-                          image_shape)
+                          image_shape,
+                          loss_func="lossless")
 
     print("Starting session")
     config = tf.ConfigProto()
@@ -100,11 +102,15 @@ def model_train(args):
                     global_step += 1
                     batch_per_sec = (time.time() - start) / global_step
                     if global_step % 100 == 0:
-                        summary, _, loss = sess.run([network.merged_summaries, network.optimizer, network.total_loss],
-                                                    feed_dict=feed_dict)
+                        summary, _, _, loss = sess.run([network.merged_summaries,
+                                                        network.optimizer,
+                                                        network.little_optimizer,
+                                                        network.total_loss],
+                                                       feed_dict=feed_dict)
                         summary_writer.add_summary(summary, global_step)
                     else:
-                        _, loss = sess.run([network.optimizer, network.total_loss], feed_dict=feed_dict)
+                        _, _, loss = sess.run([network.optimizer, network.little_optimizer, network.total_loss],
+                                              feed_dict=feed_dict)
                     print("model: {0}\tlobal step: {1:,}\t".format(os.path.basename(args.checkpoint_dir), global_step),
                           "loss: {1:0.5f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec))
                     if global_step % 1000 == 0:
@@ -134,7 +140,7 @@ def model_train(args):
                             print("Similar to {0}".format(name.title()))
                             for pls_make_functions in sorted_values[1:6]:
                                 sv = sim[pls_make_functions]
-                                if np.isnan(sv) or sv == 0:
+                                if np.isnan(sv) or sv == 0 or sv == 1.0:
                                     raise ValueError("Comparison value is {0}. Aborting".format(sv))
                                 print("\t{0} ({1:0.5f})".format(lfw.idx_to_name[image_ids[pls_make_functions]],
                                                                 sv))
