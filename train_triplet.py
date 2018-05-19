@@ -8,6 +8,7 @@ from utils import helper
 from facenet import FaceNet
 from argparse import ArgumentParser
 from transfer import load_partial_model
+import performance
 
 
 def process_all_images(dataset, network, sess, global_step, args):
@@ -27,10 +28,10 @@ def process_all_images(dataset, network, sess, global_step, args):
 def model_train(args):
     image_shape = (299, 299, 3)
     thresholds = np.arange(0, 4, 0.1)
-    # checkpoint_exclude_scopes = ["InceptionResnetV2/Logits",
-    #                              "InceptionResnetV2/AuxLogits",
-    #                              "RMSProp", "face_embedding", "Adadelta", "Adam", "beta"]
-    checkpoint_exclude_scopes = ["face_embedding"]
+    checkpoint_exclude_scopes = ["InceptionResnetV2/Logits",
+                                 "InceptionResnetV2/AuxLogits",
+                                 "RMSProp", "face_embedding", "Adadelta", "Adam", "beta"]
+    # checkpoint_exclude_scopes = ["face_embedding"]
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
     print("Parameters:")
@@ -53,7 +54,8 @@ def model_train(args):
                           global_step_ph,
                           args.learning_rate,
                           image_shape,
-                          loss_func="lossless")
+                          loss_func=args.loss_func,
+                          optimizer=args.optimizer)
 
     print("Starting session")
     config = tf.ConfigProto()
@@ -61,12 +63,16 @@ def model_train(args):
     with tf.Session(graph=graph, config=config).as_default() as sess:
         summary_writer = tf.summary.FileWriter(args.checkpoint_dir,
                                                graph=graph)
-        
-        # load partial
-        saver = load_partial_model(sess,
-                                   graph,
-                                   checkpoint_exclude_scopes,
-                                   args.pretrained_base_model)
+        if args.pretrained_base_model:
+            # load partial
+            saver = load_partial_model(sess,
+                                       graph,
+                                       checkpoint_exclude_scopes,
+                                       args.pretrained_base_model)
+        else:
+            var_list = graph.get_collection("variables")
+            saver = tf.train.Saver(var_list=var_list)
+            sess.run(tf.variables_initializer(var_list=var_list))
 
         global_step = 0
         start = time.time()
@@ -128,10 +134,11 @@ def model_train(args):
                         print("Accuracy: {0:0.2f}\tThreshold: {1:0.2f}\t".format(accuracy, threshold),
                               "Precision: {0:0.2f}\tRecall: {1:0.2f}\tF-1: {2:0.2f}\t".format(precision, recall, f1),
                               "Elapsed time: {0:0.2f} secs".format(elapsed))
-                        accuracy_collection.append({"step": global_step, "accuracy": accuracy})
-                        helper.to_json(accuracy_collection, os.path.join(args.checkpoint_dir, "accuracy.json"))
 
                         all_embeddings, image_ids = process_all_images(lfw, network, sess, global_step, args)
+                        cosine_accuracy = performance.eval_cosine_sim(all_embeddings, image_ids)
+                        accuracy_collection.append({"step": global_step, "accuracy": cosine_accuracy})
+                        helper.to_json(accuracy_collection, os.path.join(args.checkpoint_dir, "accuracy.json"))
 
                         for name in ['andrew', 'erin']:
                             person_embed = all_embeddings[image_ids == lfw.name_to_idx[name], :]
@@ -175,6 +182,8 @@ def main():
     parser.add_argument("--decay_steps", default=1000, type=int)
     parser.add_argument("--decay_rate", default=0.98, type=float)
     parser.add_argument("-f", "--lfw", default="fixtures/lfw.json", type=str)
+    parser.add_argument("--loss_func", default="lossless", type=str)
+    parser.add_argument("--optimizer", default="adam", type=str)
 
     args = parser.parse_args()
 

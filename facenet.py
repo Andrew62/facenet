@@ -17,7 +17,8 @@ class FaceNet(object):
                  global_step_ph,
                  init_learning_rate,
                  image_shape,
-                 loss_func="face_net"):
+                 loss_func="face_net",
+                 optimizer="adam"):
 
         self.is_training_ph = is_training_ph
         self.global_step_ph = global_step_ph
@@ -37,24 +38,13 @@ class FaceNet(object):
         # do the network thing here
         with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
             _, endpoints = inception_resnet_v2.inception_resnet_v2(images,
-                                                                        is_training=self.is_training_ph,
-                                                                        num_classes=1001,
-                                                                        dropout_keep_prob=1.0)
+                                                                   is_training=self.is_training_ph,
+                                                                   num_classes=embedding_size,
+                                                                   dropout_keep_prob=1.0)
             prelogits = endpoints["PreLogitsFlatten"]
 
-        with tf.variable_scope("face_embedding"):
-            weights_1 = tf.get_variable("weights_1", shape=(1536, 1024),
-                                        initializer=tf.contrib.layers.xavier_initializer())
-            layer_1 = tf.nn.relu(tf.matmul(prelogits, weights_1))
 
-            layer_1_dropout = tf.cond(self.is_training_ph,
-                                      true_fn=lambda: tf.nn.dropout(layer_1, keep_prob=0.8),
-                                      false_fn=lambda: layer_1)
-            weights_2 = tf.get_variable("weights_2", shape=(1024, embedding_size),
-                                        initializer=tf.contrib.layers.xavier_initializer())
-            layer_2 = tf.matmul(layer_1_dropout, weights_2)
-
-        self.embeddings = tf.nn.l2_normalize(layer_2, 1, 1e-10, name="l2_embedding")
+        self.embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name="l2_embedding")
 
         if loss_func == "face_net":
             # don't run this until we've already done a batch pass of faces. We
@@ -66,7 +56,7 @@ class FaceNet(object):
             anchors, positives, negatives = tf.unstack(tf.reshape(activated_embeddings, [-1, 3, embedding_size]), 3, 1)
             triplet_loss = losses.lossless_triple(anchors, positives, negatives, embedding_size, embedding_size)
         else:
-            raise Exception("{} is not a valid loss function")
+            raise Exception("{} is not a valid loss function".format(loss_func))
 
         tf.summary.scalar("Triplet_Loss", triplet_loss)
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
@@ -74,9 +64,19 @@ class FaceNet(object):
         # want to train these vars with a higher learning rate
         # major_train = [weights_1, weights_2] + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
         #                                                          scope="InceptionResnetV2/Logits")
-        major_train = [weights_1, weights_2]
-        self.optimizer = tf.train.AdadeltaOptimizer(init_learning_rate).minimize(self.total_loss,
-                                                                                 var_list=major_train)
+        # major_train = [weights_1, weights_2]
+        if optimizer == 'adagrad':
+            self.optimizer = tf.train.AdagradOptimizer(init_learning_rate).minimize(self.total_loss)
+        elif optimizer == 'adadelta':
+            self.optimizer = tf.train.AdadeltaOptimizer(init_learning_rate, rho=0.9, epsilon=1e-6).minimize(self.total_loss)
+        elif optimizer == 'adam':
+            self.optimizer = tf.train.AdamOptimizer(init_learning_rate, beta1=0.9, beta2=0.999, epsilon=0.1).minimize(self.total_loss)
+        elif optimizer == 'rmsprop':
+            self.optimizer = tf.train.RMSPropOptimizer(init_learning_rate, decay=0.9, momentum=0.9, epsilon=1.0).minimize(self.total_loss)
+        elif optimizer == 'mom':
+            self.optimizer = tf.train.MomentumOptimizer(init_learning_rate, 0.9, use_nesterov=True).minimize(self.total_loss)
+        else:
+            raise Exception("{} is not a valid optimizer function".format(optimizer))
 
         # want to make more minor updates here
         # minor_train = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="InceptionResnetV2\/(?!Logits).*")
@@ -110,6 +110,7 @@ class FaceNet(object):
         pred = np.where(l2_dist <= threshold, 1, 0)
         precision, recall, f1 = performance.precision_recall_f1(pred, true_labels)
         return threshold, acc, precision, recall, f1
+
 
     @staticmethod
     def l2_squared_distance(a, b, axis=None):

@@ -6,6 +6,7 @@ from utils import helper
 from itertools import combinations
 
 
+
 def read_one_image(buffer, **kwargs):
     """Reads one image given a filepath
 
@@ -105,4 +106,3 @@ class Dataset(object):
             if len(self.eval_fps) == 0:
                 break
         return np.asarray(out_fps)
-

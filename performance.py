@@ -38,7 +38,32 @@ def precision_recall_f1(pred, gt):
     return precision, recall, f1
 
 
+def eval_cosine_sim(all_embeddings, image_ids, n_samples=10):
+    n_items = all_embeddings.shape[0]
+    ref_size = np.int(np.ceil(n_items * 0.8))
+    samples = []
+    for _ in range(n_samples):
+        reference_mask = np.random.choice(n_items, ref_size, replace=False)
+        # since starting with ones, everything is true
+        eval_mask = np.ones(n_items, dtype=np.bool)
+        eval_mask[reference_mask] = False
+        reference_embeddings = all_embeddings[reference_mask]
+        reference_ids = image_ids[reference_mask]
+        test_embeddings = all_embeddings[eval_mask]
+        test_ids = image_ids[eval_mask]
+        pred_cosine = np.dot(reference_embeddings, test_embeddings.T)
+        pred_idx = np.argmax(pred_cosine, axis=0)
+        pred_ids = reference_ids[pred_idx]
+        samples.append(np.sum(test_ids == pred_ids)/test_ids.shape[0])
+    return np.mean(samples)
+
+
 if __name__ == "__main__":
     dists = np.random.random((100,))
     true_labs = np.random.randint(0, 2, (100,))
     print(optimal_threshold(dists, true_labs))
+
+    data = np.load("/Users/awoizesko/Documents/sentry/net/embeddings/embeddings.npz")
+    all_embeddings = data['embeddings']
+    labels = data['class_codes']
+    print(eval_cosine_sim(all_embeddings, labels))

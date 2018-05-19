@@ -13,23 +13,30 @@ class ModelParams(object):
         self.identities_per_batch = kwargs.pop("identities_per_batch", 100)
         self.n_images_per_iden = kwargs.pop("n_images_per_iden", 25)
         self.n_validation = kwargs.pop("n_validation", 10000)
-        self.pretrained_base_model = "checkpoints/pretrained/inception_resnet_v2_2016_08_30.ckpt"
+        self.pretrained_base_model = kwargs.pop("pretrained_base_model",
+                                                "checkpoints/pretrained/inception_resnet_v2_2016_08_30.ckpt")
         self.train_steps = kwargs.pop("train_steps", 40000)
         self.lfw = "fixtures/lfw.json"
+        self.loss_func = kwargs.pop("loss_func", "lossless")
+        self.optimizer = kwargs.pop("optimizer", "adam")
 
 
 def main():
-#     learning_rates = [0.01, 0.001, 0.1]
-#     identities_per_batch = [100, 200]
+    embedding_sizes = [256, 512]
+    loss_funcs = ["face_net", "lossless", "attalos"]
+    optimizers = ["adam", "rmsprop", "mom"]
 
-#     for lr, ipb in product(learning_rates, identities_per_batch):
-    checkpoint_dir = "checkpoints/multiple_lr/" + helper.get_current_timestamp()
-    params = ModelParams(learning_rate=0.01,
-                         identities_per_batch=100,
-                         train_steps=90000 * 2,
-                         checkpoint_dir=checkpoint_dir,
-                         embedding_size=200)
-    model_train(params)
+    for es, lf, opt in product(embedding_sizes, loss_funcs, optimizers):
+        checkpoint_dir = "checkpoints/from_scratch/" + helper.get_current_timestamp()
+        params = ModelParams(learning_rate=0.01,
+                             identities_per_batch=100,
+                             train_steps=50000,
+                             checkpoint_dir=checkpoint_dir,
+                             embedding_size=es,
+                             loss_func=lf,
+                             optimizer=opt,
+                             pretrained_base_model=None)
+        model_train(params)
 
 
 if __name__ == "__main__":

@@ -16,28 +16,21 @@ def facenet_loss(anchors, positives, negatives, alpha=0.2):
     return tf.reduce_mean(tf.maximum(loss, 0.0), 0)
 
 
-def center_loss(embeddings, centers, alpha=0.5):
+def center_loss(embeddings, label, alpha, n_classes):
+    """Center loss based on the paper "A Discriminative Feature Learning Approach for Deep Face Recognition"
+       (http://ydwen.github.io/papers/WenECCV16.pdf)
     """
-    https://ydwen.github.io/papers/WenECCV16.pdf
-
-    lambda/2 * sum(||x_i - cy_i||**2)
-    """
-    # reduce mean here for the same reason as above
-    return alpha * tf.reduce_mean(tf.pow(tf.subtract(embeddings, centers), 2))
-
-
-def attalos_loss(anchors, positives, negatives):
-    """Pulled from another embedding project: https://github.com/Lab41/attalos
-    """
-
-    def meanlogsig(a, b):
-        reduction_indices = 2
-        return tf.reduce_mean(
-            tf.log(tf.sigmoid(tf.reduce_sum(a * b, reduction_indices=reduction_indices))))
-
-    pos_loss = meanlogsig(anchors, positives)
-    neg_loss = meanlogsig(-anchors, negatives)
-    return -(pos_loss + neg_loss)
+    embed_dim = embeddings.get_shape()[1]
+    centers = tf.get_variable('centers', [n_classes, embed_dim], dtype=tf.float32,
+                              initializer=tf.glorot_uniform_initializer(),
+                              trainable=False)
+    label = tf.reshape(label, [-1])
+    centers_batch = tf.gather(centers, label)
+    diff = (1 - alpha) * (centers_batch - embeddings)
+    centers = tf.scatter_sub(centers, label, diff)
+    with tf.control_dependencies([centers]):
+        loss = tf.reduce_mean(tf.square(embeddings - centers_batch))
+    return loss, centers
 
 
 def lossless_triple(anchor, positive, negative, n, beta, epsilon=1e-8):
