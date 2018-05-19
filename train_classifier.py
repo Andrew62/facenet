@@ -54,6 +54,9 @@ def train(args: ClassificationArgs):
     n_classes = np.unique(data[:, 0]).shape[0]
     print(n_classes)
 
+    # drop learning rate when we save. converted from epochs
+    decay_steps = (data.shape[0] // args.batch_size) * args.save_every
+
     lfw = read_train_csv(args.lfw_csv)
     lfw_name_to_idx = np.genfromtxt(args.lfw_idx_to_name, dtype=str, delimiter=',')
 
@@ -71,6 +74,7 @@ def train(args: ClassificationArgs):
         image_buffers_ph = tf.placeholder(tf.string, name="input_image_buffers")
         labels_ph = tf.placeholder(tf.int32, name="input_labels")
         is_training_ph = tf.placeholder(tf.bool, name="is_training")
+        global_step_ph = tf.placeholder(tf.int32, name="global_step")
 
         read_one_train = partial(read_one_image,
                                  is_training=True,
@@ -92,11 +96,12 @@ def train(args: ClassificationArgs):
                                                                    is_training=is_training_ph,
                                                                    num_classes=args.embedding_size,
                                                                    dropout_keep_prob=drop_out_keep)
+            prelogits_reg = tf.nn.l2_loss(prelogits) * 4e-5  # using this val b/c it's what tf slim uses by default
+            tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, prelogits_reg)
             logits = slim.fully_connected(prelogits, n_classes, activation_fn=None)
         embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name="l2_embedding")
         predictions = tf.argmax(logits, 1)
         center_loss, _ = losses.center_loss(embeddings, labels_ph, args.center_loss_alpha, n_classes)
-        center_loss = tf.constant(0, dtype=tf.float32)
         tf.summary.scalar("Center loss", center_loss)
         one_hot = tf.one_hot(labels_ph, n_classes, on_value=1, off_value=0)
         class_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=one_hot, logits=logits))
@@ -106,7 +111,9 @@ def train(args: ClassificationArgs):
         tf.summary.scalar("Total loss", total_loss)
         accuracy, _ = tf.metrics.accuracy(one_hot, predictions)
         tf.summary.scalar("Accuracy", accuracy)
-        optimizer = tf.train.AdamOptimizer(args.learning_rate, beta1=0.9, beta2=0.999, epsilon=0.1).minimize(total_loss)
+        learning_rate = tf.train.exponential_decay(args.learning_rate, global_step_ph, decay_steps=decay_steps,
+                                                   staircase=True)
+        optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.9, beta2=0.999, epsilon=0.1).minimize(total_loss)
         merged_summaries = tf.summary.merge_all()
         global_init = tf.global_variables_initializer()
         local_init = tf.local_variables_initializer()
@@ -114,6 +121,7 @@ def train(args: ClassificationArgs):
     print("Starting session")
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
+    np.random.shuffle(data)
     with tf.Session(graph=graph, config=config).as_default() as sess:
         summary_writer = tf.summary.FileWriter(args.checkpoint_dir,
                                                graph=graph)
@@ -130,7 +138,8 @@ def train(args: ClassificationArgs):
                 feed_dict = {
                     image_buffers_ph: buffers,
                     labels_ph: batch[:, 0],
-                    is_training_ph: True
+                    is_training_ph: True,
+                    global_step_ph: global_step
                 }
                 if global_step % 100 == 0:
                     summary, _, loss = sess.run([merged_summaries, optimizer, total_loss], feed_dict=feed_dict)
@@ -139,7 +148,7 @@ def train(args: ClassificationArgs):
                     _, loss = sess.run([optimizer, total_loss], feed_dict=feed_dict)
                 global_step += 1
                 batch_per_sec = (time.time() - start) / global_step
-                print("model: {0}\tglobal step: {1:,}\t".format(os.path.basename(args.checkpoint_dir), global_step),
+                print("model: {0}\tepoch: {1:,}\tglobal step: {2:,}\t".format(os.path.basename(args.checkpoint_dir), epoch, global_step),
                       "loss: {1:0.5f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec))
             # shuffle data
             np.random.shuffle(data)
