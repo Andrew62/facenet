@@ -113,7 +113,8 @@ def train(args: ClassificationArgs):
         tf.summary.scalar("Accuracy", accuracy)
         learning_rate = tf.train.exponential_decay(args.learning_rate, global_step_ph, decay_steps=decay_steps,
                                                    staircase=True)
-        optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.9, beta2=0.999, epsilon=0.1).minimize(total_loss)
+        # adam optimizer set to andrew ng defaults
+        optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-7).minimize(total_loss)
         merged_summaries = tf.summary.merge_all()
         global_init = tf.global_variables_initializer()
         local_init = tf.local_variables_initializer()
