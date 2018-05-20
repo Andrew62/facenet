@@ -1,16 +1,15 @@
 import os
+import time
+import shutil
+import losses
+import numpy as np
 import tensorflow as tf
-from tensorflow.contrib import slim
+from utils import sprite
+from utils import helper
 from functools import partial
 from data import read_one_image
+from tensorflow.contrib import slim
 from networks import inception_resnet_v2
-import losses
-import time
-from utils import helper
-from utils import sprite
-import numpy as np
-# from tensorflow.contrib.slim.nets import inception
-import shutil
 from tensorflow.contrib.tensorboard.plugins import projector
 
 
@@ -46,11 +45,6 @@ def process_all_images(sess, global_step, lfw, image_ph, embeddings_op, args, is
         embeddings.append(sess.run(embeddings_op, feed_dict={image_ph: buffers, is_training_ph: False}))
     all_embeddings = np.concatenate(embeddings)
     image_ids_np = lfw[:, 0]
-    # hoping this is just an artifact of early processing
-    nanna_mask = np.any(~np.isnan(embeddings), axis=1)
-    all_embeddings = all_embeddings[nanna_mask, :]
-    image_ids_np = image_ids_np[nanna_mask]
-
     np.savez(os.path.join(args.checkpoint_dir, "embeddings_{0}.npz".format(global_step)),
              embeddings=all_embeddings,
              class_codes=image_ids_np)
@@ -133,6 +127,7 @@ def train(args: ClassificationArgs):
         predictions = tf.argmax(logits, 1, name="prediction")
         center_loss, face_centers = losses.center_loss(embeddings, labels_ph, args.center_loss_alpha, n_classes)
         tf.summary.scalar("Center_loss", center_loss)
+        tf.summary.histogram("centers_hist", face_centers)
         one_hot = tf.one_hot(labels_ph, n_classes, on_value=1, off_value=0)
         class_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=one_hot, logits=logits))
         tf.summary.scalar("Softmax_loss", class_loss)
@@ -142,8 +137,8 @@ def train(args: ClassificationArgs):
         learning_rate = tf.train.exponential_decay(args.learning_rate, global_step_ph, decay_steps=decay_steps,
                                                    staircase=True, decay_rate=0.96)
         tf.summary.scalar("Learning_Rate", learning_rate)
-
         accuracy, _ = tf.metrics.accuracy(one_hot, predictions)
+        tf.summary.scalar("Accuracy", accuracy)
         # adam optimizer set to andrew ng defaults
         optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-7).minimize(total_loss)
         merged_summaries = tf.summary.merge_all()
@@ -159,11 +154,21 @@ def train(args: ClassificationArgs):
                                                graph=graph)
         var_list = graph.get_collection("variables")
         saver = tf.train.Saver(var_list=var_list)
-        sess.run([global_init, local_init])
-        global_step = 0
+        latest_checkpoint = tf.train.latest_checkpoint(args.checkpoint_dir)
+        if latest_checkpoint:
+            print("Restoring from " + latest_checkpoint)
+            saver.restore(sess, latest_checkpoint)
+            global_step = int(latest_checkpoint.split("-")[-1])
+            start_epoch = int(global_step // batches_per_epoch)
+            sess.run(local_init)
+        else:
+            print("Initializing!")
+            sess.run([global_init, local_init])
+            global_step = 0
+            start_epoch = 0
         start = time.time()
         try:
-            for epoch in range(args.epochs):
+            for epoch in range(start_epoch, args.epochs):
                 for idx in range(0, data.shape[0], args.batch_size):
                     batch = data[idx: idx + args.batch_size, :]
                     buffers = helper.read_buffer_vect(batch[:, 1])
@@ -233,7 +238,7 @@ def train(args: ClassificationArgs):
 
 def main():
     args = ClassificationArgs(epochs=90,
-                              checkpoint_dir="checkpoints/softmax/" + helper.get_current_timestamp(),
+                              checkpoint_dir="checkpoints/softmax/" + "2018-05-20-1418",  #helper.get_current_timestamp(),
                               save_every=5,
                               embedding_size=512,
                               lfw_csv="fixtures/lfw.csv",

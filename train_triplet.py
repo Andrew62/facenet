@@ -108,15 +108,14 @@ def model_train(args):
                     global_step += 1
                     batch_per_sec = (time.time() - start) / global_step
                     if global_step % 100 == 0:
-                        summary, _, _, loss = sess.run([network.merged_summaries,
-                                                        network.optimizer,
-                                                        network.little_optimizer,
-                                                        network.total_loss],
-                                                       feed_dict=feed_dict)
+                        summary, _, loss = sess.run([network.merged_summaries,
+                                                     network.optimizer,
+                                                     network.total_loss],
+                                                    feed_dict=feed_dict)
                         summary_writer.add_summary(summary, global_step)
                     else:
-                        _, _, loss = sess.run([network.optimizer, network.little_optimizer, network.total_loss],
-                                              feed_dict=feed_dict)
+                        _, loss = sess.run([network.optimizer, network.total_loss],
+                                           feed_dict=feed_dict)
                     print("model: {0}\tlobal step: {1:,}\t".format(os.path.basename(args.checkpoint_dir), global_step),
                           "loss: {1:0.5f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec))
                     if global_step % 1000 == 0:

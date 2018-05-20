@@ -61,10 +61,6 @@ class FaceNet(object):
         tf.summary.scalar("Triplet_Loss", triplet_loss)
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         self.total_loss = tf.add_n([triplet_loss] + regularization_loss, name="total_loss")
-        # want to train these vars with a higher learning rate
-        # major_train = [weights_1, weights_2] + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
-        #                                                          scope="InceptionResnetV2/Logits")
-        # major_train = [weights_1, weights_2]
         if optimizer == 'adagrad':
             self.optimizer = tf.train.AdagradOptimizer(init_learning_rate).minimize(self.total_loss)
         elif optimizer == 'adadelta':
@@ -77,11 +73,6 @@ class FaceNet(object):
             self.optimizer = tf.train.MomentumOptimizer(init_learning_rate, 0.9, use_nesterov=True).minimize(self.total_loss)
         else:
             raise Exception("{} is not a valid optimizer function".format(optimizer))
-
-        # want to make more minor updates here
-        # minor_train = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="InceptionResnetV2\/(?!Logits).*")
-        # self.little_optimizer = tf.train.AdadeltaOptimizer(0.00001).minimize(self.total_loss, var_list=minor_train)
-        self.little_optimizer = tf.constant(0, tf.int8)
 
         tf.summary.scalar("Total_Loss", self.total_loss)
         self.merged_summaries = tf.summary.merge_all()
