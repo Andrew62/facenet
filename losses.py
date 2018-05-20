@@ -28,7 +28,7 @@ def center_loss(embeddings, label, alpha, n_classes):
     centers_batch = tf.gather(centers, label)
     diff = (1 - alpha) * (centers_batch - embeddings)
     centers = tf.scatter_sub(centers, label, diff)
-    tf.summary.histogram("centers", centers)
+    tf.summary.histogram("centers_hist", centers)
     with tf.control_dependencies([centers]):
         loss = tf.reduce_mean(tf.square(embeddings - centers_batch))
     return loss, centers
