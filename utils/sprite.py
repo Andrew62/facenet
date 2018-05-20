@@ -1,6 +1,5 @@
 import numpy as np
 from PIL import Image
-import os.path as osp
 
 
 def get_thumbnail(fp, size=(100, 100)):
@@ -33,12 +32,11 @@ def make_sprite(image_fps, out_image, thumbnail_size=(100, 100)):
     sprite.save(out_image)
 
 
-def sprite_metadata(file_paths, out_f):
+def sprite_metadata(names, out_f):
     """
     Write the metadata file for tensorboard
     """
     with open(out_f, "w") as target:
-        target.write("Name\tImage\n")
-        for fp in file_paths:
-            name = osp.basename(osp.dirname(fp))
-            target.write("{0}\t{1}\n".format(name, fp))
+        target.write("Name\n")
+        for name in names:
+            target.write("{0}\n".format(name))

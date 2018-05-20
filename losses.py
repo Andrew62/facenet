@@ -22,12 +22,13 @@ def center_loss(embeddings, label, alpha, n_classes):
     """
     embed_dim = embeddings.get_shape()[1]
     centers = tf.get_variable('centers', [n_classes, embed_dim], dtype=tf.float32,
-                              initializer=tf.glorot_uniform_initializer(),
+                              initializer=tf.zeros_initializer(),
                               trainable=False)
     label = tf.reshape(label, [-1])
     centers_batch = tf.gather(centers, label)
     diff = (1 - alpha) * (centers_batch - embeddings)
     centers = tf.scatter_sub(centers, label, diff)
+    tf.summary.histogram("centers", centers)
     with tf.control_dependencies([centers]):
         loss = tf.reduce_mean(tf.square(embeddings - centers_batch))
     return loss, centers
