@@ -37,6 +37,5 @@ def sprite_metadata(names, out_f):
     Write the metadata file for tensorboard
     """
     with open(out_f, "w") as target:
-        target.write("Name\n")
         for name in names:
             target.write("{0}\n".format(name))

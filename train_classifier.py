@@ -29,6 +29,8 @@ class ClassificationArgs(object):
         self.epochs = kwargs.pop("epochs", 90)
         self.learning_rate = kwargs.pop("learning_rate", 0.01)
         self.eval_every = kwargs.pop('eval_every', 10)
+        self.decay_epochs = kwargs.pop("decay_epochs", 5)
+        self.decay_rate = kwargs.pop('decay_rate', 0.96)
 
 
 def read_train_csv(fp: str) -> np.array:
@@ -75,7 +77,7 @@ def train(args: ClassificationArgs):
     # drop learning rate when we save. converted from epochs
     batches_per_epoch = data.shape[0] // args.batch_size
     print("{:,} batches/epoch".format(batches_per_epoch))
-    decay_steps = batches_per_epoch * args.save_every
+    decay_steps = batches_per_epoch * args.decay_epochs
 
     lfw = read_train_csv(args.lfw_csv)
     lfw_name_to_idx = np.genfromtxt(args.lfw_idx_to_name, dtype=str, delimiter=',')
@@ -135,10 +137,8 @@ def train(args: ClassificationArgs):
         total_loss = tf.add_n([class_loss, center_loss] + regularization_loss, name="total_loss")
         tf.summary.scalar("Total_loss", total_loss)
         learning_rate = tf.train.exponential_decay(args.learning_rate, global_step_ph, decay_steps=decay_steps,
-                                                   staircase=True, decay_rate=0.96)
+                                                   staircase=True, decay_rate=args.decay_rate)
         tf.summary.scalar("Learning_Rate", learning_rate)
-        accuracy, _ = tf.metrics.accuracy(one_hot, predictions)
-        tf.summary.scalar("Accuracy", accuracy)
         # adam optimizer set to andrew ng defaults
         optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-7).minimize(total_loss)
         merged_summaries = tf.summary.merge_all()
@@ -179,17 +179,16 @@ def train(args: ClassificationArgs):
                         global_step_ph: global_step
                     }
                     if global_step % 100 == 0:
-                        summary, _, loss, acc = sess.run([merged_summaries, optimizer, total_loss, accuracy],
-                                                         feed_dict=feed_dict)
+                        summary, _, loss = sess.run([merged_summaries, optimizer, total_loss], feed_dict=feed_dict)
                         summary_writer.add_summary(summary, global_step)
+                        batch_per_sec = (time.time() - start) / global_step
+                        print("model: {0}\tepoch: {1:,}\tglobal step: {2:,}\t".format(os.path.basename(args.checkpoint_dir),
+                                                                                      epoch, global_step),
+                              "loss: {1:0.5f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec))
                     else:
-                        _, loss, acc = sess.run([optimizer, total_loss, accuracy], feed_dict=feed_dict)
+                        _, loss = sess.run([optimizer, total_loss], feed_dict=feed_dict)
                     global_step += 1
-                    batch_per_sec = (time.time() - start) / global_step
-                    print("model: {0}\tepoch: {1:,}\tglobal step: {2:,}\t".format(os.path.basename(args.checkpoint_dir),
-                                                                                  epoch, global_step),
-                          "loss: {1:0.5f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec),
-                          "accuracy: {0:0.2%}".format(acc))
+
                     if loss == np.inf:  # esta no bueno!
                         raise ValueError("Loss is inf")
                 # shuffle data
@@ -225,7 +224,7 @@ def train(args: ClassificationArgs):
     # projector visualization
     prj_config = projector.ProjectorConfig()
     face_centers_prj = prj_config.embeddings.add()
-    face_centers_prj.tensor_name = face_centers.name
+    face_centers_prj.tensor_name = 'centers:0'  # pulled from the variable within losses.py
     face_centers_prj.metadata_path = projector_metadata
     face_centers_prj.sprite.image_path = projector_sprite
     face_centers_prj.sprite.single_image_dim.extend(thumbnail_size)
@@ -237,7 +236,7 @@ def train(args: ClassificationArgs):
 
 
 def main():
-    args = ClassificationArgs(epochs=90,
+    args = ClassificationArgs(epochs=270,
                               checkpoint_dir="checkpoints/softmax/" + "2018-05-20-1418",  #helper.get_current_timestamp(),
                               save_every=5,
                               embedding_size=512,
@@ -247,7 +246,9 @@ def main():
                               train_idx_to_name="fixtures/youtube_subset.csv.classes",
                               batch_size=64,
                               learning_rate=0.01,
-                              image_shape=(160, 160, 3))
+                              image_shape=(160, 160, 3),
+                              decay_rate=0.96,
+                              decay_epochs=5)
     train(args)
 
 
