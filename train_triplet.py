@@ -26,7 +26,7 @@ def process_all_images(dataset, network, sess, global_step, args):
 
 
 def model_train(args):
-    image_shape = (299, 299, 3)
+    image_shape = (160, 160, 3)
     thresholds = np.arange(0, 4, 0.1)
     checkpoint_exclude_scopes = ["InceptionResnetV2/Logits",
                                  "InceptionResnetV2/AuxLogits",
@@ -146,7 +146,7 @@ def model_train(args):
                             print("Similar to {0}".format(name.title()))
                             for pls_make_functions in sorted_values[1:6]:
                                 sv = sim[pls_make_functions]
-                                if np.isnan(sv) or sv == 0 or sv == 1.0:
+                                if np.isnan(sv):
                                     raise ValueError("Comparison value is {0}. Aborting".format(sv))
                                 print("\t{0} ({1:0.5f})".format(lfw.idx_to_name[image_ids[pls_make_functions]],
                                                                 sv))
