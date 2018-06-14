@@ -23,14 +23,15 @@ class ModelParams(object):
 
 def main():
     embedding_sizes = [256, 512]
-    loss_funcs = ["face_net", "lossless", "attalos"]
-    optimizers = ["adam", "rmsprop", "mom"]
+    loss_funcs = ["face_net"]
+    optimizers = ["adam"]
+    train_steps = 50000 * 6
 
     for es, lf, opt in product(embedding_sizes, loss_funcs, optimizers):
-        checkpoint_dir = "checkpoints/from_scratch/" + helper.get_current_timestamp()
+        checkpoint_dir = "checkpoints/from_scratch/" + "{}_{}_{}_{}".format(lf, opt, es, train_steps) #helper.get_current_timestamp()
         params = ModelParams(learning_rate=0.01,
                              identities_per_batch=100,
-                             train_steps=50000,
+                             train_steps=train_steps,
                              checkpoint_dir=checkpoint_dir,
                              embedding_size=es,
                              loss_func=lf,
