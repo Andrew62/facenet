@@ -26,7 +26,7 @@ def process_all_images(dataset, network, sess, global_step, args):
 
 
 def model_train(args):
-    image_shape = (299, 299, 3)
+    image_shape = (160, 160, 3)
     thresholds = np.arange(0, 4, 0.1)
     checkpoint_exclude_scopes = ["InceptionResnetV2/Logits",
                                  "InceptionResnetV2/AuxLogits",
@@ -141,8 +141,8 @@ def model_train(args):
 
                         for name in ['andrew', 'erin']:
                             person_embed = all_embeddings[image_ids == lfw.name_to_idx[name], :]
-                            sim = np.dot(all_embeddings, person_embed[0])
-                            sorted_values = np.argsort(sim)[::-1]
+                            sim = np.linalg.norm(all_embeddings - person_embed[0])
+                            sorted_values = np.argsort(sim)
                             print("Similar to {0}".format(name.title()))
                             for pls_make_functions in sorted_values[1:6]:
                                 sv = sim[pls_make_functions]
