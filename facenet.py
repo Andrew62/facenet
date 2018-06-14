@@ -42,8 +42,6 @@ class FaceNet(object):
                                                                    num_classes=embedding_size,
                                                                    dropout_keep_prob=1.0)
             prelogits = endpoints["PreLogitsFlatten"]
-
-
         self.embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name="l2_embedding")
 
         if loss_func == "face_net":
