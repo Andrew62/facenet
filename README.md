@@ -15,3 +15,7 @@ your data into
         
 The naming convetion doesn't matter so much as the folder structure and this 
 will decode .jpg, .png, and .gif.
+
+# Training Options
+There is a classification based model and a triplet model. Each requires a different data format -- json for triple csv for
+classification.
