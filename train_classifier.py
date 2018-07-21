@@ -11,6 +11,7 @@ from data import read_one_image
 from tensorflow.contrib import slim
 from networks import inception_resnet_v2
 from tensorflow.contrib.tensorboard.plugins import projector
+import performance
 
 
 class ClassificationArgs(object):
@@ -47,10 +48,28 @@ def process_all_images(sess, global_step, lfw, image_ph, embeddings_op, args, is
         embeddings.append(sess.run(embeddings_op, feed_dict={image_ph: buffers, is_training_ph: False}))
     all_embeddings = np.concatenate(embeddings)
     image_ids_np = lfw[:, 0]
-    np.savez(os.path.join(args.checkpoint_dir, "embeddings_{0}.npz".format(global_step)),
-             embeddings=all_embeddings,
-             class_codes=image_ids_np)
     return all_embeddings, image_ids_np
+
+def evaluate(sess,
+            lfw,
+            global_step,
+            image_ph,
+            embeddings_op,
+            args, 
+            is_training_ph,
+            thresholds=np.arange(0, 4, 0.01)):
+    validation_set = lfw.get_evaluation_batch()
+    col0 = validation_set[:, 0]
+    col1 = validation_set[:, 1]
+    all_fps = np.hstack([col0, col1])
+    embeddings, _ = process_all_images(sess, global_step, lfw, image_ph, embeddings_op, args, is_training_ph)
+    n_rows = validation_set.shape[0]
+    col0_embeddings = embeddings[:n_rows, :]
+    col1_embeddings = embeddings[n_rows:, :]
+    l2_dist = np.sum(np.square(col0_embeddings - col1_embeddings), axis=1)  #l2 squared dist
+    true_labels = validation_set[:, -1].astype(np.int)
+    # returns -> threshold, acc
+    return performance.optimal_threshold(l2_dist, true_labels, thresholds=thresholds)
 
 
 def train(args: ClassificationArgs):
@@ -200,20 +219,14 @@ def train(args: ClassificationArgs):
 
                 if ((epoch + 1) % args.eval_every) == 0:
                     print("evaluating")
-                    all_embeddings, image_ids = process_all_images(sess, global_step, lfw, image_buffers_ph, embeddings,
-                                                                   args, is_training_ph)
-                    for name in ['andrew', 'erin']:
-                        name_to_idx = np.where(lfw_name_to_idx == name)[0][0]
-                        person_embed = all_embeddings[image_ids == name_to_idx, :]
-                        sim = np.dot(all_embeddings, person_embed[0])
-                        sorted_values = np.argsort(sim)[::-1]
-                        print("Similar to {0}".format(name.title()))
-                        for sidx in sorted_values[1:6]:
-                            sv = sim[sidx]
-                            # TODO are we just getting high/low values b/c it's early in training?
-                            # if np.isnan(sv) or sv == 0 or sv == 1.0:
-                            #     raise ValueError("Comparison value is {0}. Aborting".format(sv))
-                            print("\t{0} ({1:0.5f})".format(lfw_name_to_idx[image_ids[sidx]], sv))
+                    threshold, acuracy = evaluate(sess, lfw, global_step, 
+                                                image_buffers_ph, embeddings, 
+                                                args, is_training_ph)
+                    eval_summary = tf.Summary()
+                    eval_summary.value.add(tag="lfw_verification_accuracy", simple_value=accuracy)
+                    eval_summary.value.add(tag="lfw_verification_threshold", simple_value=threshold)
+                    summary_writer.add_summary(eval_summary, global_step=global_step)
+                    
         except KeyboardInterrupt:
             print("Keyboard interrupt. Exiting loop")
         except tf.errors.ResourceExhaustedError as e:
@@ -229,7 +242,6 @@ def train(args: ClassificationArgs):
     face_centers_prj.sprite.image_path = projector_sprite
     face_centers_prj.sprite.single_image_dim.extend(thumbnail_size)
     projector.visualize_embeddings(summary_writer, prj_config)
-    # projector visualization
 
     saver.save(sess, os.path.join(args.checkpoint_dir, 'facenet_classifier'), global_step=global_step)
     print("Done")
