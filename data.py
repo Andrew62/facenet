@@ -6,7 +6,6 @@ from utils import helper
 from itertools import combinations
 
 
-
 def read_one_image(buffer, **kwargs):
     """Reads one image given a filepath
 
@@ -52,6 +51,10 @@ class Dataset(object):
 
         # use these to cache our validation pairs
         self.eval_fps = []
+
+    @property
+    def n_classes(self):
+        return len(self.name_to_idx.keys())
 
     def get_train_batch(self, **kwargs):
         n_identities_per = kwargs.pop("n_identities_per", self.n_identities_per)

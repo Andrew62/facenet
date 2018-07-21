@@ -36,7 +36,8 @@ def center_loss(embeddings, label, alpha, n_classes):
 def lossless_triple(anchor, positive, negative, n, beta, epsilon=1e-8):
     """Dont' forget to sigmoid
 
-    http://coffeeanddata.ca/lossless-triplet-loss/"""
+    http://coffeeanddata.ca/lossless-triplet-loss/
+    """
     pos = tf.reduce_sum(tf.square(tf.subtract(anchor, positive)), 1)
     neg = tf.reduce_sum(tf.square(tf.subtract(anchor, negative)), 1)
     pos_dist = -tf.log(-tf.divide(pos, beta) + 1 + epsilon)

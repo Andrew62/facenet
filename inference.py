@@ -3,7 +3,7 @@ import sys
 import json
 import numpy as np
 import tensorflow as tf
-from facenet import FaceNet
+from triplet_trian_ops import FaceNet
 from argparse import ArgumentParser
 
 
