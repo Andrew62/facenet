@@ -56,14 +56,3 @@ def eval_cosine_sim(all_embeddings, image_ids, n_samples=10):
         pred_ids = reference_ids[pred_idx]
         samples.append(np.sum(test_ids == pred_ids)/test_ids.shape[0])
     return np.mean(samples)
-
-
-if __name__ == "__main__":
-    dists = np.random.random((100,))
-    true_labs = np.random.randint(0, 2, (100,))
-    print(optimal_threshold(dists, true_labs))
-
-    data = np.load("/Users/awoizesko/Documents/sentry/net/embeddings/embeddings.npz")
-    all_embeddings = data['embeddings']
-    labels = data['class_codes']
-    print(eval_cosine_sim(all_embeddings, labels))
