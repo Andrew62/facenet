@@ -3,14 +3,8 @@ import numpy as np
 
 
 def accuracy(pred, true_labels):
-    tp = np.logical_and(pred, true_labels).sum()
-    fp = np.logical_and(pred, np.logical_not(true_labels)).sum()
-    tn = np.logical_and(np.logical_not(pred), np.logical_not(true_labels)).sum()
-    fn = np.logical_and(np.logical_not(pred), true_labels).sum()
-    tpr = 0 if (tp + fn == 0) else tp / (tp + fn)
-    fpr = 0 if (fp + tn == 0) else fp / (fp + tn)
-    acc = (tp + tn) / pred.shape[0]
-    return tpr, fpr, acc
+    correct = (pred == true_labels).sum()
+    return correct / pred.shape[0]
 
 
 def optimal_threshold(l2_dists, true_labels, thresholds=np.arange(0.1, 4, 0.01)):
@@ -18,7 +12,7 @@ def optimal_threshold(l2_dists, true_labels, thresholds=np.arange(0.1, 4, 0.01))
     best_threshold = None
     for threshold in thresholds:
         pred = np.where(l2_dists <= threshold, 1, 0)
-        _, _, acc = accuracy(pred, true_labels)
+        acc = accuracy(pred, true_labels)
         if acc > best_accuracy:
             best_threshold = threshold
             best_accuracy = acc

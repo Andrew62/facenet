@@ -1,9 +1,12 @@
+import os
+import numpy as np
 import tensorflow as tf
-from train_classifier import read_train_csv, process_all_images
+from train_classifier import read_train_csv
+from utils import helper
 
 
-checkpoint_dir = 'checkpoints/softmax/2018-05-20-1418'
-input_csv_path = "fixtures/face-detect-site.csv"
+checkpoint_dir = 'checkpoints/softmax/2018-07-29-1316'
+input_csv_path = "fixtures/faces/representative-faces/face_centers.csv"
 
 
 class OutArgs:
@@ -26,8 +29,14 @@ with tf.Session() as sess:
 
     data = read_train_csv(input_csv_path)
     print("Processing")
-    embed, img_id = process_all_images(sess, "final", data, input_ph, embeddings_op,
-                                       out_args, is_training_ph)
-    print(embed.shape, img_id.shape)
+    embeddings_list = []
+    class_codes_list = []
+    for idx in range(0, data.shape[0], out_args.batch_size):
+        batch = data[idx: idx + out_args.batch_size]
+        buffers = helper.read_buffer_vect(batch[:, 1])
+        embeddings_list.append(sess.run(embeddings_op, feed_dict={input_ph: buffers, is_training_ph: False}))
+    embeddings = np.concatenate(embeddings_list)
+    np.savez(os.path.join(checkpoint_dir, "representative-embeddings.npz"), embeddings=embeddings_list, class_codes=data[:, 0])
+    print(embeddings.shape)
 
 print("done")

@@ -29,7 +29,7 @@ class ClassificationArgs(object):
         self.save_every = kwargs.pop('save_every', 10)
         self.epochs = kwargs.pop("epochs", 90)
         self.learning_rate = kwargs.pop("learning_rate", 0.01)
-        self.eval_every = kwargs.pop('eval_every', 10)
+        self.eval_every = kwargs.pop('eval_every', 2)
         self.decay_epochs = kwargs.pop("decay_epochs", 5)
         self.decay_rate = kwargs.pop('decay_rate', 0.96)
 
@@ -40,15 +40,14 @@ def read_train_csv(fp: str) -> np.array:
     return np.array([class_ids, image_fps], dtype='O').T
 
 
-def process_all_images(sess, global_step, lfw, image_ph, embeddings_op, args, is_training_ph):
+def embed_faces(sess, global_step, file_paths, image_ph, embeddings_op, args, is_training_ph):
     embeddings = []
-    for idx in range(0, lfw.shape[0], args.batch_size):
-        batch = lfw[idx: idx + args.batch_size, :]
-        buffers = helper.read_buffer_vect(batch[:, 1])
+    for idx in range(0, file_paths.shape[0], args.batch_size):
+        batch = file_paths[idx: idx + args.batch_size]
+        buffers = helper.read_buffer_vect(batch)
         embeddings.append(sess.run(embeddings_op, feed_dict={image_ph: buffers, is_training_ph: False}))
     all_embeddings = np.concatenate(embeddings)
-    image_ids_np = lfw[:, 0]
-    return all_embeddings, image_ids_np
+    return all_embeddings
 
 def evaluate(sess,
             lfw,
@@ -58,22 +57,52 @@ def evaluate(sess,
             args, 
             is_training_ph,
             thresholds=np.arange(0, 4, 0.01)):
-    validation_set = lfw.get_evaluation_batch()
+    np.random.shuffle(lfw)
+    total_pairs = lfw.shape[0]
+    n_val_pairs = min(10000, np.int(total_pairs * 0.1))
+    validation_set = lfw[:n_val_pairs]
     col0 = validation_set[:, 0]
     col1 = validation_set[:, 1]
-    all_fps = np.hstack([col0, col1])
-    embeddings, _ = process_all_images(sess, global_step, lfw, image_ph, embeddings_op, args, is_training_ph)
-    n_rows = validation_set.shape[0]
-    col0_embeddings = embeddings[:n_rows, :]
-    col1_embeddings = embeddings[n_rows:, :]
-    l2_dist = np.sum(np.square(col0_embeddings - col1_embeddings), axis=1)  #l2 squared dist
+    val_fp_stack = np.hstack([col0, col1])
+    embeddings = embed_faces(sess, global_step, val_fp_stack, image_ph, embeddings_op, args, is_training_ph)
+    col0_embeddings = embeddings[:n_val_pairs, :]
+    col1_embeddings = embeddings[n_val_pairs:, :]
+    l2_dist = np.sum(np.square(col0_embeddings - col1_embeddings), axis=1)  # l2 squared dist
     true_labels = validation_set[:, -1].astype(np.int)
     # returns -> threshold, acc
     return performance.optimal_threshold(l2_dist, true_labels, thresholds=thresholds)
 
 
+def make_validation_pairs(lfw):
+    class_ids = lfw[:, 0]
+    image_fps = lfw[:, 1]
+    validation_pairs = []
+    for class_id in np.lib.arraysetops.unique(class_ids):
+        mask = class_id == class_ids
+        in_class_images = image_fps[mask]
+        out_class_images = image_fps[np.logical_not(mask)]
+        ooc_idx = np.arange(0, out_class_images.shape[0], step=1, dtype=np.int)
+        for i in range(in_class_images.shape[0] - 1):
+            for j in range(i + 1, in_class_images.shape[0]):
+                # positive 
+                validation_pairs.append([in_class_images[i], in_class_images[j], 1])
+                # negative 
+                neg_idx = np.random.choice(ooc_idx)
+                validation_pairs.append([in_class_images[i], out_class_images[neg_idx], 0])
+    return np.array(validation_pairs)
+
+
 def train(args: ClassificationArgs):
     os.makedirs(args.checkpoint_dir, exist_ok=True)
+    
+    learning_rate_schedule = {
+        0: 0.05,
+        10: 0.01,
+        25: 0.001,
+        50: 0.0001,
+        80: 0.00001
+    }
+        
 
     data = read_train_csv(args.train_csv)
     data_idx_to_name = np.genfromtxt(args.train_idx_to_name, dtype=str, delimiter=',')
@@ -100,6 +129,8 @@ def train(args: ClassificationArgs):
 
     lfw = read_train_csv(args.lfw_csv)
     lfw_name_to_idx = np.genfromtxt(args.lfw_idx_to_name, dtype=str, delimiter=',')
+    lfw_eval_pairs = make_validation_pairs(lfw)
+    print("generated {:,} eval pairs".format(lfw_eval_pairs.shape[0]))
 
     print("Parameters:")
     with open(os.path.join(args.checkpoint_dir, "training_params.txt"), 'w') as target:
@@ -155,11 +186,13 @@ def train(args: ClassificationArgs):
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         total_loss = tf.add_n([class_loss, center_loss] + regularization_loss, name="total_loss")
         tf.summary.scalar("Total_loss", total_loss)
-        learning_rate = tf.train.exponential_decay(args.learning_rate, global_step_ph, decay_steps=decay_steps,
-                                                   staircase=True, decay_rate=args.decay_rate)
+        learning_rate = tf.placeholder(tf.float32, name="learning_rate")
+#         learning_rate = tf.train.exponential_decay(args.learning_rate, global_step_ph, decay_steps=decay_steps,
+#                                                    staircase=True, decay_rate=args.decay_rate)
         tf.summary.scalar("Learning_Rate", learning_rate)
         # adam optimizer set to andrew ng defaults
-        optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-7).minimize(total_loss)
+        # optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-7).minimize(total_loss)
+        optimizer = tf.train.MomentumOptimizer(learning_rate, 0.9).minimize(total_loss)
         merged_summaries = tf.summary.merge_all()
         global_init = tf.global_variables_initializer()
         local_init = tf.local_variables_initializer()
@@ -188,6 +221,8 @@ def train(args: ClassificationArgs):
         start = time.time()
         try:
             for epoch in range(start_epoch, args.epochs):
+                if epoch in learning_rate_schedule.keys():
+                    lr = learning_rate_schedule[epoch]
                 for idx in range(0, data.shape[0], args.batch_size):
                     batch = data[idx: idx + args.batch_size, :]
                     buffers = helper.read_buffer_vect(batch[:, 1])
@@ -195,15 +230,18 @@ def train(args: ClassificationArgs):
                         image_buffers_ph: buffers,
                         labels_ph: batch[:, 0],
                         is_training_ph: True,
-                        global_step_ph: global_step
+                        global_step_ph: global_step,
+                        learning_rate: lr
                     }
                     if global_step % 100 == 0:
                         summary, _, loss = sess.run([merged_summaries, optimizer, total_loss], feed_dict=feed_dict)
                         summary_writer.add_summary(summary, global_step)
+                        local_time = time.localtime()
                         batch_per_sec = (time.time() - start) / global_step
-                        print("model: {0}\tepoch: {1:,}\tglobal step: {2:,}\t".format(os.path.basename(args.checkpoint_dir),
+                        print("model: {0}  epoch: {1:,}  global step: {2:,}  ".format(os.path.basename(args.checkpoint_dir),
                                                                                       epoch, global_step),
-                              "loss: {1:0.5f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec))
+                              "loss: {0:0.5f}  time: {1} (step/sec: {2:0.2f})".format(loss, time.strftime("%T", local_time),
+                                                                                    batch_per_sec))
                     else:
                         _, loss = sess.run([optimizer, total_loss], feed_dict=feed_dict)
                     global_step += 1
@@ -219,9 +257,10 @@ def train(args: ClassificationArgs):
 
                 if ((epoch + 1) % args.eval_every) == 0:
                     print("evaluating")
-                    threshold, accuracy = evaluate(sess, lfw, global_step, 
+                    threshold, accuracy = evaluate(sess, lfw_eval_pairs, global_step, 
                                                 image_buffers_ph, embeddings, 
                                                 args, is_training_ph)
+                    print("eval threshold: {:0.2f}\teval accuracy: {:0.2f}".format(threshold, accuracy))
                     eval_summary = tf.Summary()
                     eval_summary.value.add(tag="lfw_verification_accuracy", simple_value=accuracy)
                     eval_summary.value.add(tag="lfw_verification_threshold", simple_value=threshold)
@@ -248,16 +287,16 @@ def train(args: ClassificationArgs):
 
 
 def main():
-    args = ClassificationArgs(epochs=270,
-                              checkpoint_dir="checkpoints/softmax/" + helper.get_current_timestamp(),
+    args = ClassificationArgs(epochs=90,
+                              checkpoint_dir="checkpoints/softmax_vgg/" + helper.get_current_timestamp(),
                               save_every=5,
-                              embedding_size=512,
+                              embedding_size=256,
                               lfw_csv="fixtures/test.csv",
                               lfw_idx_to_name="fixtures/test.csv.idens",
                               train_csv="fixtures/train.csv",
                               train_idx_to_name="fixtures/train.csv.idens",
                               batch_size=64,
-                              learning_rate=0.01,
+                              learning_rate=0.01, # started at 0.05. manually dropping
                               image_shape=(160, 160, 3),
                               decay_rate=0.96,
                               decay_epochs=5)
