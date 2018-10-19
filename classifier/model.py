@@ -4,10 +4,10 @@ import shutil
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
-from center_loss import center_loss
-from data_stream import make_dataset
+from .data_stream import make_dataset
 from networks import inception_resnet_v2
-from classification_args import ClassificationArgs
+from .classification_args import ClassificationArgs
+from .loss import center_loss as cls_center_loss
 
 
 def save_train_params(args: ClassificationArgs):
@@ -25,8 +25,8 @@ def train(args: ClassificationArgs):
     print("Building graph")
     graph = tf.Graph()
     with graph.as_default():
-        dataset_iterator = make_dataset([args.train_csv], image_shape=args.image_shape)
-        labels, images = dataset_iterator.get_next(0)
+        dataset_iterator = make_dataset([args.train_csv], image_size=args.image_shape, batch_size=args.batch_size)
+        labels, images = dataset_iterator.get_next()
 
         is_training_ph = tf.placeholder(tf.bool, name="is_training")
         global_step = tf.Variable(0)
@@ -41,14 +41,14 @@ def train(args: ClassificationArgs):
                                                                           dropout_keep_prob=args.drop_out)
 
             # using this val b/c it's what tf slim uses by default
-            prelogits_reg = tf.nn.l2_loss(network_features) * 4e-5
+            prelogits_reg = tf.nn.l2_loss(network_features) * 0.05
             tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, prelogits_reg)
 
             logits = slim.fully_connected(network_features, args.num_classes, activation_fn=None,
                                           weights_initializer=tf.contrib.layers.xavier_initializer())
 
         embeddings = tf.nn.l2_normalize(network_features, axis=1, name="l2_embedding")
-        center_loss, face_centers = center_loss(embeddings, labels, args.center_loss_alpha, args.num_classes)
+        center_loss, face_centers = cls_center_loss(embeddings, labels, args.center_loss_alpha, args.num_classes)
         one_hot = tf.one_hot(labels, args.num_classes, on_value=1, off_value=0)
         pred = tf.argmax(logits, axis=1, name='predictions')
         class_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=one_hot, logits=logits))
@@ -66,6 +66,7 @@ def train(args: ClassificationArgs):
         tf.summary.scalar("Total_loss", total_loss)
         tf.summary.scalar("Softmax_loss", class_loss)
         tf.summary.scalar("Center_loss", center_loss)
+        tf.summary.scalar("prelogits_l2_loss", prelogits_reg)
         tf.summary.histogram("centers_hist", face_centers)
         tf.summary.histogram("l2_embeddings", embeddings)
         tf.summary.histogram("network_features", network_features)
@@ -129,18 +130,3 @@ def train(args: ClassificationArgs):
     saver.save(sess, os.path.join(args.checkpoint_dir, 'facenet_classifier'), global_step=global_step)
     print("Done")
 
-
-def main():
-    args = ClassificationArgs(epochs=90,
-                              checkpoint_dir="checkpoints/softmax/" + "2018-05-20-1418",  #helper.get_current_timestamp(),
-                              save_every=3000,
-                              embedding_size=256,
-                              train_csv="fixtures/youtube_subset.csv",
-                              batch_size=64,
-                              learning_rate=0.01,
-                              image_shape=(160, 160, 3))
-    train(args)
-
-
-if __name__ == "__main__":
-    main()
