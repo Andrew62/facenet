@@ -5,14 +5,15 @@ from classifier.classification_args import ClassificationArgs
 
 def main():
     args = ClassificationArgs(epochs=90,
-                              checkpoint_dir="checkpoints/softmax/" + helper.get_current_timestamp(),
-                              save_every=3000,
+                              checkpoint_dir="checkpoints/softmax_vgg/" "clipped_grads_" + helper.get_current_timestamp(),
+                              save_every=10,  # epochs
                               embedding_size=256,
                               train_csv="fixtures/train-subset-568226.csv",
-                              batch_size=64,
-                              learning_rate=0.01,
+                              batch_size=32,
+                              learning_rate=0.045,
                               image_shape=(160, 160, 3),
-                              num_classes=1708)  # for train-subset-568226.csv
+                              num_classes=1708,  # for train-subset-568226.csv
+                              reg_beta=0.04)
     train(args)
 
 

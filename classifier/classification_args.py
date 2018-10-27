@@ -12,3 +12,4 @@ class ClassificationArgs(object):
         self.epochs = kwargs.pop("epochs", 90)
         self.learning_rate = kwargs.pop("learning_rate", 0.01)
         self.num_classes = kwargs['num_classes']
+        self.regularization_beta = kwargs.pop("reg_beta", 4e-5)
