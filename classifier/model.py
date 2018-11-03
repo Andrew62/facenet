@@ -51,12 +51,14 @@ def train(args: ClassificationArgs):
 
         embeddings = tf.nn.l2_normalize(network_features, axis=1, name="l2_embedding")
         center_loss, face_centers = cls_center_loss(embeddings, labels, args.center_loss_alpha, args.num_classes)
-        one_hot = tf.one_hot(labels, args.num_classes, on_value=1, off_value=0)
-        pred = tf.argmax(network_features, axis=1, name='predictions')
-        class_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=one_hot, logits=logits))
+        tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, center_loss * args.regularization_beta)
+        # one_hot = tf.one_hot(labels, args.num_classes, on_value=1, off_value=0)
+        pred = tf.argmax(logits, axis=1, name='predictions')
+        class_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits))
 
-        regularization_loss = tf.reduce_mean(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
-        total_loss = tf.add_n([class_loss, center_loss, regularization_loss], name="total_loss")
+        regularization_loss = tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+        total_loss = tf.add_n([class_loss, regularization_loss], name="total_loss")
+        # total_loss = tf.add_n([class_loss, center_loss * args.regularization_beta], name="total_loss")
 
         # decay every 2 epochs
         lr_decay = tf.train.exponential_decay(args.learning_rate, global_step, decay_steps=2 * steps_per_epoch,
@@ -78,6 +80,7 @@ def train(args: ClassificationArgs):
         tf.summary.scalar("Softmax_loss", class_loss)
         tf.summary.scalar("Center_loss", center_loss)
         tf.summary.scalar("prelogits_l2_loss", prelogits_reg)
+        tf.summary.scalar("learning_rate", lr_decay)
         tf.summary.histogram("centers_hist", face_centers)
         tf.summary.histogram("l2_embeddings", embeddings)
         tf.summary.histogram("network_features", network_features)

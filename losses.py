@@ -7,9 +7,9 @@ def facenet_loss(anchors, positives, negatives, alpha=0.2):
         ave([||f(anchor) - f(positive))||**2] - [||f(anchor) - f(negative)||**2] + alpha)
     """
     # reduce row-wise
-    positive_dist = tf.reduce_sum(tf.pow(anchors - positives, 2), 1)
+    positive_dist = tf.reduce_sum(tf.square(anchors - positives), -1)
     tf.summary.scalar("Positive_Distance", tf.reduce_mean(positive_dist))
-    negative_dist = tf.reduce_sum(tf.pow(anchors - negatives, 2), 1)
+    negative_dist = tf.reduce_sum(tf.square(anchors - negatives), -1)
     tf.summary.scalar("Negative_Distance", tf.reduce_mean(negative_dist))
     loss = positive_dist - negative_dist + alpha
     # reduce mean since we could have variable batch size
@@ -19,7 +19,8 @@ def facenet_loss(anchors, positives, negatives, alpha=0.2):
 def lossless_triple(anchor, positive, negative, n, beta, epsilon=1e-8):
     """Dont' forget to sigmoid
 
-    http://coffeeanddata.ca/lossless-triplet-loss/"""
+    http://coffeeanddata.ca/lossless-triplet-loss/
+    """
     pos = tf.reduce_sum(tf.square(tf.subtract(anchor, positive)), 1)
     neg = tf.reduce_sum(tf.square(tf.subtract(anchor, negative)), 1)
     pos_dist = -tf.log(-tf.divide(pos, beta) + 1 + epsilon)

@@ -5,6 +5,43 @@ from utils import helper
 from itertools import combinations
 
 
+<<<<<<< HEAD:data.py
+def read_one_image(buffer, **kwargs):
+    """Reads one image given a filepath
+
+    Parameters
+    -----------
+    fname : str
+        JPEG, PNG, or GIF file buffer
+    img_shape : tuple
+        (kwarg) shape of the eventual image. Default is (224, 224, 3)
+    is_training : bool
+        (kwarg) boolean to tell the loader function if the graph is in training
+        mode or testing. Default is True
+
+    Returns
+    -------
+    preprocessed image
+    """
+    img_shape = kwargs.pop("image_shape", (224, 224, 3))
+    is_training = kwargs.pop("is_training", False)
+
+    # decode buffer as an image
+    image = tf.image.decode_image(buffer, channels=img_shape[-1])
+
+    image = tf.image.resize_bicubic(tf.expand_dims(image, 0), (img_shape[0], img_shape[1]))
+    image = tf.squeeze(image, [0])
+    if is_training:
+        up_down = tf.random_uniform([], minval=0, maxval=1)
+        image = tf.cond(up_down > 0.5,
+                        lambda: tf.image.flip_up_down(image),
+                        lambda: tf.image.random_flip_left_right(image))
+    image.set_shape(img_shape)
+    return tf.image.per_image_standardization(image)
+
+
+=======
+>>>>>>> 9f020b5fd29c1ad87572a4a0708e49516f27e374:triplet/data.py
 class Dataset(object):
     def __init__(self, class_fp, **kwargs):
         self.class_data = helper.load_json(class_fp)
@@ -16,6 +53,10 @@ class Dataset(object):
 
         # use these to cache our validation pairs
         self.eval_fps = []
+
+    @property
+    def n_classes(self):
+        return len(self.name_to_idx.keys())
 
     def get_train_batch(self, **kwargs):
         n_identities_per = kwargs.pop("n_identities_per", self.n_identities_per)

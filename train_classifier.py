@@ -13,7 +13,7 @@ def main():
                               learning_rate=0.045,
                               image_shape=(160, 160, 3),
                               num_classes=1708,  # for train-subset-568226.csv
-                              reg_beta=0.04)
+                              reg_beta=4e-5)
     train(args)
 
 

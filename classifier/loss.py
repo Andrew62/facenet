@@ -11,8 +11,8 @@ def center_loss(embeddings, label, alpha, n_classes):
                               trainable=False)
     label = tf.reshape(label, [-1])
     centers_batch = tf.gather(centers, label)
-    diff = centers_batch - embeddings
+    diff = (1 - alpha) * (centers_batch - embeddings)
     centers = tf.scatter_sub(centers, label, diff)
     with tf.control_dependencies([centers]):
-        loss = alpha * tf.reduce_mean(tf.square(embeddings - centers_batch))
+        loss = tf.reduce_mean(tf.square(embeddings - centers_batch))
     return loss, centers

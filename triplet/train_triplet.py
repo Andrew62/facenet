@@ -1,13 +1,41 @@
 
 import os
 import time
+import losses
 import numpy as np
 import tensorflow as tf
-from data import Dataset
+import triplet_trian_ops
 from utils import helper
-from facenet import FaceNet
-from argparse import ArgumentParser
+from functools import partial
+from itertools import product
+from tensorflow.contrib import slim
 from transfer import load_partial_model
+<<<<<<< HEAD:train_triplet.py
+from networks import inception_resnet_v2
+from data import Dataset, read_one_image
+
+
+class ModelParams(object):
+    def __init__(self, **kwargs):
+        self.input_faces = kwargs.pop("input_faces", "fixtures/faces.json")
+        self.checkpoint_dir = kwargs.pop("checkpoint_dir")
+        self.batch_size = kwargs.pop("batch_size", 64)
+        self.embedding_size = kwargs.pop("embedding_size", 128)
+        self.learning_rate = kwargs.pop("learning_rate", 0.01)
+        self.identities_per_batch = kwargs.pop("identities_per_batch", 100)
+        self.n_images_per_iden = kwargs.pop("n_images_per_iden", 25)
+        self.n_validation = kwargs.pop("n_validation", 1000)
+        self.pretrained_base_model = kwargs.pop("pretrained_base_model",
+                                                "checkpoints/pretrained/inception_resnet_v2_2016_08_30.ckpt")
+        self.train_steps = kwargs.pop("train_steps", 40000)
+        self.lfw = "fixtures/lfw.json"
+        self.loss_func = kwargs.pop("loss_func", "lossless")
+        self.center_loss_alpha = kwargs.pop("center_loss_alpha", 0.5)
+        self.use_center_loss = kwargs.pop("use_center_loss", False)
+
+
+def model_train(args: ModelParams):
+=======
 import performance
 
 
@@ -26,12 +54,9 @@ def process_all_images(dataset, network, sess, global_step, args):
 
 
 def model_train(args):
+>>>>>>> 9f020b5fd29c1ad87572a4a0708e49516f27e374:triplet/train_triplet.py
     image_shape = (160, 160, 3)
     thresholds = np.arange(0, 4, 0.1)
-    checkpoint_exclude_scopes = ["InceptionResnetV2/Logits",
-                                 "InceptionResnetV2/AuxLogits",
-                                 "RMSProp", "face_embedding", "Adadelta", "Adam", "beta"]
-    # checkpoint_exclude_scopes = ["face_embedding"]
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
     print("Parameters:")
@@ -42,20 +67,59 @@ def model_train(args):
                 print(line)
                 target.write(line + '\n')
 
+    dataset = Dataset(args.input_faces,
+                      n_identities_per=args.identities_per_batch,
+                      n_images_per=args.n_images_per_iden)
+
     print("Building graph")
     graph = tf.Graph()
     with graph.as_default():
         image_buffers_ph = tf.placeholder(tf.string, name="input_image_buffers")
         global_step_ph = tf.placeholder(tf.int32, name="global_step")
         is_training_ph = tf.placeholder(tf.bool, name="is_training")
-        network = FaceNet(image_buffers_ph,
-                          is_training_ph,
-                          args.embedding_size,
-                          global_step_ph,
-                          args.learning_rate,
-                          image_shape,
-                          loss_func=args.loss_func,
-                          optimizer=args.optimizer)
+        # do this so we can change behavior
+        read_one_train = partial(read_one_image,
+                                 is_training=True,
+                                 image_shape=image_shape)
+        read_one_test = partial(read_one_image,
+                                is_training=False,
+                                image_shape=image_shape)
+        images = tf.cond(is_training_ph,
+                         true_fn=lambda: tf.map_fn(read_one_train, image_buffers_ph, dtype=tf.float32),
+                         false_fn=lambda: tf.map_fn(read_one_test, image_buffers_ph, dtype=tf.float32))
+        tf.summary.image("input", images, max_outputs=12)
+        # do the network thing here
+        with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
+            logits, _ = inception_resnet_v2.inception_resnet_v2(images,
+                                                                is_training=is_training_ph,
+                                                                num_classes=args.embedding_size,
+                                                                dropout_keep_prob=0.8)
+
+        embeddings = tf.nn.l2_normalize(logits, 1, name="l2_embedding")
+        tf.summary.histogram("normed_embeddings", embeddings)
+
+        if args.loss_func == "face_net":
+            # don't run this until we've already done a batch pass of faces. We
+            # compute the triplets offline, stack, and run through again
+            anchors, positives, negatives = tf.unstack(tf.reshape(embeddings, [-1, 3, args.embedding_size]), 3, 1)
+            triplet_loss = losses.facenet_loss(anchors, positives, negatives)
+        elif args.loss_func == "lossless":
+            activated_embeddings = tf.nn.sigmoid(embeddings)
+            anchors, positives, negatives = tf.unstack(tf.reshape(activated_embeddings,
+                                                                  [-1, 3, args.embedding_size]), 3, 1)
+            triplet_loss = losses.lossless_triple(anchors, positives, negatives, args.embedding_size,
+                                                  args.embedding_size)
+        else:
+            raise Exception("{} is not a valid loss function".format(args.loss_func))
+
+        tf.summary.scalar("Triplet_Loss", triplet_loss)
+        regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        total_loss = tf.add_n([triplet_loss] + regularization_loss, name="total_loss")
+        optimizer = tf.train.AdamOptimizer(args.learning_rate).minimize(total_loss)
+        tf.summary.scalar("Total loss", total_loss)
+        merged_summaries = tf.summary.merge_all()
+        global_init = tf.global_variables_initializer()
+        local_init = tf.local_variables_initializer()
 
     print("Starting session")
     config = tf.ConfigProto()
@@ -63,38 +127,38 @@ def model_train(args):
     with tf.Session(graph=graph, config=config).as_default() as sess:
         summary_writer = tf.summary.FileWriter(args.checkpoint_dir,
                                                graph=graph)
-        if args.pretrained_base_model:
-            # load partial
-            saver = load_partial_model(sess,
-                                       graph,
-                                       checkpoint_exclude_scopes,
-                                       args.pretrained_base_model)
+        var_list = graph.get_collection("variables")
+        saver = tf.train.Saver(var_list=var_list)
+        latest_checkpoint = tf.train.latest_checkpoint(args.checkpoint_dir)
+        if latest_checkpoint:
+            print("Restoring from " + latest_checkpoint)
+            saver.restore(sess, latest_checkpoint)
+            global_step = int(latest_checkpoint.split("-")[-1])
+            sess.run(local_init)
         else:
-            var_list = graph.get_collection("variables")
-            saver = tf.train.Saver(var_list=var_list)
-            sess.run(tf.variables_initializer(var_list=var_list))
+            print("Initializing!")
+            sess.run([global_init, local_init])
+            global_step = 0
 
-        global_step = 0
         start = time.time()
-        dataset = Dataset(args.input_faces,
-                          n_identities_per=args.identities_per_batch,
-                          n_images_per=args.n_images_per_iden)
+
         lfw = Dataset(args.lfw, n_eval_pairs=args.n_validation)
 
         # write this to disc early in case we want to inspect embedding checkpoints
         helper.to_json(lfw.idx_to_name, os.path.join(args.checkpoint_dir, "idx_to_name.json"))
         print("Starting loop")
-        accuracy_collection = []
         while global_step < args.train_steps:
             try:
                 # embed and collect all current face weights
                 image_paths, classes = dataset.get_train_batch()
-                embeddings_np = network.inference(sess,
-                                                  image_paths,
-                                                  args.batch_size,
-                                                  True,
-                                                  global_step)
-                triplets = network.get_triplets(image_paths, embeddings_np, classes)
+                embeddings_np = triplet_trian_ops.inference(image_paths, sess, embeddings, image_buffers_ph,
+                                                            is_training_ph, global_step_ph, args.batch_size,
+                                                            global_step)
+                if np.any(np.isnan(embeddings_np)) or np.any(np.isinf(embeddings_np)):
+                    print("NaNs or inf found in embeddings. Exiting")
+                    raise ValueError("NaNs or inf found in embeddings")
+
+                triplets = triplet_trian_ops.get_triplets(image_paths, embeddings_np, classes)
                 n_trips = triplets.shape[0]
                 trip_step = args.batch_size - (args.batch_size % 3)
                 for idx in range(0, n_trips, trip_step):
@@ -108,22 +172,30 @@ def model_train(args):
                     global_step += 1
                     batch_per_sec = (time.time() - start) / global_step
                     if global_step % 100 == 0:
-                        summary, _, loss = sess.run([network.merged_summaries,
-                                                     network.optimizer,
-                                                     network.total_loss],
-                                                    feed_dict=feed_dict)
+                        summary, _, loss = sess.run([merged_summaries, optimizer, total_loss], feed_dict=feed_dict)
                         summary_writer.add_summary(summary, global_step)
+                        print("model: {0}\tlobal step: {1:,}\t".format(os.path.basename(args.checkpoint_dir),
+                                                                       global_step),
+                              "loss: {1:0.5f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec))
                     else:
-                        _, loss = sess.run([network.optimizer, network.total_loss],
-                                           feed_dict=feed_dict)
-                    print("model: {0}\tlobal step: {1:,}\t".format(os.path.basename(args.checkpoint_dir), global_step),
-                          "loss: {1:0.5f}\tstep/sec: {2:0.2f}".format(global_step, loss, batch_per_sec))
+                        _, loss = sess.run([optimizer, total_loss], feed_dict=feed_dict)
+
                     if global_step % 1000 == 0:
                         saver.save(sess, args.checkpoint_dir + '/facenet', global_step=global_step)
 
                         print("Evaluating")
                         start = time.time()
                         evaluation_set = lfw.get_evaluation_batch()
+<<<<<<< HEAD:train_triplet.py
+                        threshold, accuracy = triplet_trian_ops.evaluate(sess, evaluation_set, embeddings,
+                                                                         image_buffers_ph, is_training_ph,
+                                                                         global_step_ph, global_step,
+                                                                         args.batch_size, thresholds)
+                        eval_summary = tf.Summary()
+                        eval_summary.value.add(tag="lfw_verification_accuracy", simple_value=accuracy)
+                        eval_summary.value.add(tag="lfw_verification_threshold", simple_value=threshold)
+                        summary_writer.add_summary(eval_summary, global_step=global_step)
+=======
                         (threshold, accuracy, precision, recall, f1) = network.evaluate(sess,
                                                                                         evaluation_set,
                                                                                         global_step,
@@ -150,43 +222,34 @@ def model_train(args):
                                     raise ValueError("Comparison value is {0}. Aborting".format(sv))
                                 print("\t{0} ({1:0.5f})".format(lfw.idx_to_name[image_ids[pls_make_functions]],
                                                                 sv))
+>>>>>>> 9f020b5fd29c1ad87572a4a0708e49516f27e374:triplet/train_triplet.py
 
             except KeyboardInterrupt:
                 print("Keyboard Interrupt. Exiting.")
                 break
         print("Saving model...")
         saver.save(sess, os.path.join(args.checkpoint_dir, 'facenet'), global_step=global_step)
-        print("Saved to: {0}".format(args.checkpoint_dir))
-        print("Exporting dataset embeddings...")
-        process_all_images(lfw, network, sess, global_step, args)
-        helper.to_json(accuracy_collection, os.path.join(args.checkpoint_dir, "accuracy.json"))
+        print("Saved to: {}".format(args.checkpoint_dir))
     print("Done")
 
 
 def main():
-    parser = ArgumentParser()
-    parser.add_argument("-i", "--input_faces", help="input faces json file",
-                        default="fixtures/faces.json")
-    parser.add_argument("-c", "--checkpoint_dir", help="location to write training checkpoints",
-                        default="checkpoints/inception_resnet_v2/" + helper.get_current_timestamp())
-    parser.add_argument("-b", "--batch_size", default=80, type=int)
-    parser.add_argument("-e", "--embedding_size", default=128, type=int)
-    parser.add_argument("-l", "--learning_rate", default=0.01, type=float)
-    parser.add_argument("-d", "--identities_per_batch", default=100, type=int)
-    parser.add_argument("-n", "--n_images_per_iden", default=25, type=int)
-    parser.add_argument("-v", "--n_validation", default=10000, type=int)
-    parser.add_argument("-p", "--pretrained_base_model",
-                        default="checkpoints/pretrained/inception_resnet_v2_2016_08_30.ckpt")
-    parser.add_argument("-s", "--train_steps", default=40000, type=int)
-    parser.add_argument("--decay_steps", default=1000, type=int)
-    parser.add_argument("--decay_rate", default=0.98, type=float)
-    parser.add_argument("-f", "--lfw", default="fixtures/lfw.json", type=str)
-    parser.add_argument("--loss_func", default="lossless", type=str)
-    parser.add_argument("--optimizer", default="adam", type=str)
+    embedding_sizes = [128, 512]
+    loss_funcs = ["face_net"]
+    train_steps = 500000
 
-    args = parser.parse_args()
-
-    model_train(args)
+    for es, lf in product(embedding_sizes, loss_funcs):
+        checkpoint_dir = "checkpoints/triplet/" + "{}_{}".format(lf, es)
+        params = ModelParams(learning_rate=0.001,
+                             identities_per_batch=40,
+                             train_steps=train_steps,
+                             checkpoint_dir=checkpoint_dir,
+                             embedding_size=es,
+                             loss_func=lf,
+                             pretrained_base_model=None,
+                             use_center_loss=False,
+                             batch_size=32)
+        model_train(params)
 
 
 if __name__ == "__main__":

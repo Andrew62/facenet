@@ -41,7 +41,7 @@ def main():
     # write out csv of all combinations of positives. Later we'll
     # sample negatives from within a minibatch
     with open(args.out_file, 'w') as target:
-        json.dump(images, target, indent=2)
+        json.dump(images, target)
 
     n_collected = sum([len(v) for v in images.values()])
     print("Collected {0:,} images.".format(n_collected))
