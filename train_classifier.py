@@ -5,9 +5,9 @@ from classifier.classification_args import ClassificationArgs
 
 def main():
     args = ClassificationArgs(epochs=90,
-                              checkpoint_dir="checkpoints/softmax_vgg/" "clipped_grads_" + helper.get_current_timestamp(),
-                              save_every=10,  # epochs
-                              embedding_size=256,
+                              checkpoint_dir="checkpoints/softmax_vgg/" "clipped_grads_128_" + helper.get_current_timestamp(),
+                              save_every=5,  # epochs
+                              embedding_size=128,
                               train_csv="fixtures/train-subset-568226.csv",
                               batch_size=32,
                               learning_rate=0.045,
