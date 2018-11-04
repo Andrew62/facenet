@@ -24,6 +24,7 @@ def save_train_params(args: ClassificationArgs):
 def train(args: ClassificationArgs):
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     steps_per_epoch = helper.get_steps_per_epoch([args.train_csv], batch_size=args.batch_size, header=False)
+    save_train_params(args)
     print("Building graph")
     graph = tf.Graph()
     with graph.as_default():
@@ -32,8 +33,6 @@ def train(args: ClassificationArgs):
 
         is_training_ph = tf.placeholder(tf.bool, name="is_training")
         global_step = tf.Variable(0)
-
-        tf.summary.image("input", images, max_outputs=3)
 
         # do the network thing here
         with slim.arg_scope(inception_v3.inception_v3_arg_scope(weight_decay=args.regularization_beta)):
@@ -52,13 +51,11 @@ def train(args: ClassificationArgs):
         embeddings = tf.nn.l2_normalize(network_features, axis=1, name="l2_embedding")
         center_loss, face_centers = cls_center_loss(embeddings, labels, args.center_loss_alpha, args.num_classes)
         tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, center_loss * args.regularization_beta)
-        # one_hot = tf.one_hot(labels, args.num_classes, on_value=1, off_value=0)
         pred = tf.argmax(logits, axis=1, name='predictions')
         class_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits))
 
         regularization_loss = tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
         total_loss = tf.add_n([class_loss, regularization_loss], name="total_loss")
-        # total_loss = tf.add_n([class_loss, center_loss * args.regularization_beta], name="total_loss")
 
         # decay every 2 epochs
         lr_decay = tf.train.exponential_decay(args.learning_rate, global_step, decay_steps=2 * steps_per_epoch,
@@ -84,6 +81,7 @@ def train(args: ClassificationArgs):
         tf.summary.histogram("centers_hist", face_centers)
         tf.summary.histogram("l2_embeddings", embeddings)
         tf.summary.histogram("network_features", network_features)
+        tf.summary.image("input", images, max_outputs=3)
 
         merged_summaries = tf.summary.merge_all()
         global_init = tf.global_variables_initializer()
@@ -125,12 +123,13 @@ def train(args: ClassificationArgs):
                         ops_to_run = [global_step_inc, train_op, total_loss]
                         _, _, loss = sess.run(ops_to_run, feed_dict=feed_dict)
 
-                        if loss == np.inf:  # esta no bueno!
-                            raise ValueError("Loss is inf")
+                    if loss == np.inf:  # esta no bueno!
+                        raise ValueError("Loss is inf")
 
                     if ((global_step.eval() + 1) % (args.save_every * steps_per_epoch)) == 0:
                         print("Check pointing")
-                        saver.save(sess, os.path.join(args.checkpoint_dir, 'facenet_classifier'), global_step=global_step.eval())
+                        saver.save(sess, os.path.join(args.checkpoint_dir, 'facenet_classifier'),
+                                   global_step=global_step.eval())
                 except tf.errors.OutOfRangeError:
                     break
 
