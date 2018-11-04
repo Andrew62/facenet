@@ -46,19 +46,7 @@ def main():
             logits, endpoints = inception_resnet_v2.inception_resnet_v2(image_batch,
                                                                         is_training=tf.constant(False, dtype=tf.bool),
                                                                         num_classes=2048)
-        with tf.variable_scope("face_embedding"):
-            weights_1 = tf.get_variable("weights_1", shape=(2048, 2048),
-                                        initializer=tf.contrib.layers.xavier_initializer())
-            layer_1 = tf.nn.relu(tf.matmul(logits, weights_1))
-
-            layer_1_dropout = tf.cond(tf.constant(False, dtype=tf.bool),  # keeping this conditional here to match train
-                                      true_fn=lambda: tf.nn.dropout(layer_1, keep_prob=0.8),
-                                      false_fn=lambda: layer_1)
-            weights_2 = tf.get_variable("weights_2", shape=(2048, 200),
-                                        initializer=tf.contrib.layers.xavier_initializer())
-            layer_2 = tf.matmul(layer_1_dropout, weights_2)
-
-        embeddings = tf.nn.l2_normalize(layer_2, 1, 1e-10, name="l2_embedding")
+        embeddings = tf.nn.l2_normalize(logits, 1, 1e-10, name="l2_embedding")
 
         # use these so we can grab them easier later. Don't like using "get_tensor_by_name" or w/e
         tf.add_to_collection("input_buffers", input_buffers)

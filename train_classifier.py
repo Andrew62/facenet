@@ -5,7 +5,7 @@ from classifier.classification_args import ClassificationArgs
 
 def main():
     args = ClassificationArgs(epochs=90,
-                              checkpoint_dir="checkpoints/softmax_vgg/" "clipped_grads_" + helper.get_current_timestamp(),
+                              checkpoint_dir="checkpoints/softmax_vgg/clipped_grads_" + helper.get_current_timestamp(),
                               save_every=10,  # epochs
                               embedding_size=256,
                               train_csv="fixtures/train-subset-568226.csv",
