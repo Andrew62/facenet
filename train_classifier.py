@@ -4,11 +4,18 @@ from classifier.classification_args import ClassificationArgs
 
 
 def main():
+    train_csvs = [
+        "fixtures/train-partitions/0.part",
+        "fixtures/train-partitions/1.part",
+        "fixtures/train-partitions/2.part",
+        "fixtures/train-partitions/3.part",
+    ]
+    small_train_csvs = ["fixtures/train-subset-568226.csv"],
     args = ClassificationArgs(epochs=90,
-                              checkpoint_dir="checkpoints/softmax_vgg/" "clipped_grads_128_" + helper.get_current_timestamp(),
+                              checkpoint_dir="checkpoints/softmax_vgg/clipped_grads_128_" + helper.get_current_timestamp(),
                               save_every=5,  # epochs
                               embedding_size=128,
-                              train_csv="fixtures/train-subset-568226.csv",
+                              train_csv=train_csvs
                               batch_size=32,
                               learning_rate=0.045,
                               image_shape=(160, 160, 3),

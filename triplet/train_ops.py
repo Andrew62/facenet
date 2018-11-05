@@ -3,7 +3,7 @@ from utils import helper
 
 
 def inference(image_paths, sess, embeddings_op, image_buffers_ph,
-              is_training_ph, global_step_ph, batch_size, global_step):
+              is_training_ph, batch_size):
     embeddings_np = []
     for mini_idx in range(0, image_paths.shape[0], batch_size):
         mini_batch = image_paths[mini_idx: mini_idx + batch_size]
@@ -11,19 +11,16 @@ def inference(image_paths, sess, embeddings_op, image_buffers_ph,
         embeddings_np.append(sess.run(embeddings_op, feed_dict={
             image_buffers_ph: mini_image_buffers,
             is_training_ph: False,
-            global_step_ph: global_step
-
         }))
     return np.vstack(embeddings_np)
 
 
 def evaluate(sess, validation_set, embeddings_op, image_buffers_ph,
-             is_training_ph, global_step_ph, global_step, batch_size, thresholds):
+             is_training_ph, batch_size, thresholds):
     col0 = validation_set[:, 0]
     col1 = validation_set[:, 1]
     all_fps = np.hstack([col0, col1])
-    embeddings = inference(all_fps, sess, embeddings_op, image_buffers_ph, is_training_ph, global_step_ph,
-                           batch_size, global_step)
+    embeddings = inference(all_fps, sess, embeddings_op, image_buffers_ph, is_training_ph, batch_size)
     n_rows = validation_set.shape[0]
     col0_embeddings = embeddings[:n_rows, :]
     col1_embeddings = embeddings[n_rows:, :]
@@ -42,6 +39,19 @@ def accuracy(pred, true_labels):
     fpr = 0 if (fp + tn == 0) else fp / (fp + tn)
     acc = (tp + tn) / pred.shape[0]
     return tpr, fpr, acc
+
+
+def process_all_images(dataset, network, sess, global_step, args):
+    all_images, image_ids = dataset.get_all_files()
+    all_images_np, image_ids_np = np.array(all_images), np.array(image_ids)
+    all_embeddings = network.inference(sess,
+                                       all_images_np,
+                                       args.batch_size,
+                                       False)
+    np.savez(os.path.join(args.checkpoint_dir, "embeddings_{0}.npz".format(global_step)),
+             embeddings=all_embeddings,
+             class_codes=image_ids_np)
+    return all_embeddings, image_ids_np
 
 
 def optimal_threshold(l2_dists, true_labels, thresholds=np.arange(0.1, 4, 0.01)):
@@ -63,6 +73,7 @@ def l2_squared_distance(a, b, axis=None):
 def get_triplets(image_paths, embeddings, class_ids, alpha=0.2):
     unique_ids = np.unique(class_ids)
     out_fps = []
+    out_ids = []
 
     # do this to make the comparison below to check for the same class
     for class_id in unique_ids:
@@ -85,5 +96,6 @@ def get_triplets(image_paths, embeddings, class_ids, alpha=0.2):
                 # input is a list of indicies
                 neg_idx = np.random.choice(valid_negatives)
                 out_fps.extend([class_fps[anchor_idx], class_fps[pos_idx], out_of_class_fps[neg_idx]])
+                out_ids.extend([class_ids[anchor_idx], class_ids[pos_idx], class_ids[neg_idx]])
     print("Generated {0:,} triplets".format(len(out_fps) // 3))
-    return np.asarray(out_fps)
+    return np.asarray(out_fps), np.asarray(out_ids)
