@@ -8,8 +8,7 @@ from itertools import combinations
 class Dataset(object):
     def __init__(self, class_fp, **kwargs):
         self.class_data = helper.load_json(class_fp)
-        self.idx_to_name = dict((idx, name) for idx, name in enumerate(sorted(self.class_data.keys())))
-        self.name_to_idx = dict((name, idx) for idx, name in self.idx_to_name.items())
+        self.class_idxs = list(self.class_data.keys())
         self.n_identities_per = min(kwargs.pop("n_identities_per", 40), len(self.class_data.keys()))
         self.n_images_per = kwargs.pop("n_images_per", 25)
         self.n_eval_pairs = kwargs.pop("n_eval_pairs", 10000)
@@ -23,40 +22,38 @@ class Dataset(object):
 
     @property
     def n_classes(self):
-        return len(self.name_to_idx.keys())
+        return len(self.class_idxs)
 
     def get_train_batch(self, **kwargs):
         n_identities_per = kwargs.pop("n_identities_per", self.n_identities_per)
         n_images_per = kwargs.pop("n_images_per", self.n_images_per)
-        names = list(self.class_data.keys())
+
         out_fps = []
         out_ids = []
-        for _ in range(3):
-            random.shuffle(names)
-        for name in names[:n_identities_per]:
-            fps = self.class_data[name]
+        random.shuffle(self.class_idxs)
+        for cidx in self.class_idxs[:n_identities_per]:
+            fps = self.class_data[cidx]
             n_images = min(len(fps), n_images_per)
-            for _ in range(3):
-                random.shuffle(fps)
+            random.shuffle(fps)
             for fp in fps[:n_images]:
                 out_fps.append(fp)
-                out_ids.append(self.name_to_idx[name])
+                out_ids.append(cidx)
         return np.asarray(out_fps), np.asarray(out_ids)
 
     def get_all_files(self):
         out_fps = []
         out_ids = []
-        for idx, (class_name, file_paths) in enumerate(self.class_data.items()):
+        for cidx, file_paths in self.class_data.items():
             for fp in file_paths:
                 out_fps.append(fp)
-                out_ids.append(self.name_to_idx[class_name])
+                out_ids.append(cidx)
         return out_fps, out_ids
 
     def generate_val(self):
-        for identity, image_fps in self.class_data.items():
+        for iden1, image_fps in self.class_data.items():
             all_negatives = []
             for iden2, neg_fps in self.class_data.items():
-                if iden2 == identity:
+                if iden2 == iden1:
                     continue
                 all_negatives.extend(neg_fps)
             for fp1, fp2 in combinations(image_fps, 2):
@@ -69,8 +66,7 @@ class Dataset(object):
         n_images_per = kwargs.pop("n_eval_pairs", self.n_eval_pairs)
         if len(self.eval_fps) == 0:
             self.generate_val()
-        for _ in range(3):
-            random.shuffle(self.eval_fps)
+        random.shuffle(self.eval_fps)
         out_fps = []
         for _ in range(n_images_per):
             idx = random.randint(0, len(self.eval_fps) - 1)

@@ -48,15 +48,14 @@ def model_train(args: ModelParams):
                                                             num_classes=args.embedding_size,
                                                             dropout_keep_prob=args.drop_out)
 
-        embeddings = tf.nn.l2_normalize(network_features, 1, name="l2_embedding")
+        embeddings = tf.nn.l2_normalize(network_features, axis=1, name="l2_embedding")
         triplet_loss = losses.build_loss(args, embeddings)
-        regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-
         unstacked_labels = losses.unstack_triplets(labels_ph, [-1, 3, 1])
         center_loss, face_centers = center_loss_fn(embeddings, unstacked_labels, args.center_loss_alpha,
                                                    dataset.n_classes)
         tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, center_loss * args.regularization_beta)
-        total_loss = tf.add_n([triplet_loss] + regularization_loss, name="total_loss")
+        regularization_loss = tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+        total_loss = tf.add_n([triplet_loss, regularization_loss], name="total_loss")
 
         # decay every 2 epochs
         lr_decay = tf.train.exponential_decay(args.learning_rate, global_step, decay_steps=2 * dataset.total_images,
@@ -73,6 +72,8 @@ def model_train(args: ModelParams):
         tf.summary.scalar("Triplet_Loss", triplet_loss)
         tf.summary.scalar("Total loss", total_loss)
         tf.summary.scalar("Center_loss", center_loss)
+        tf.summary.scalar("Regularization_loss", regularization_loss)
+        tf.summary.scalar("learning_rate", lr_decay)
         tf.summary.histogram("normed_embeddings", embeddings)
         tf.summary.histogram("centers_hist", face_centers)
 
@@ -97,7 +98,6 @@ def model_train(args: ModelParams):
             sess.run([global_init, local_init])
 
         start = time.time()
-
         lfw = Dataset(args.lfw, n_eval_pairs=args.n_validation)
 
         # write this to disc early in case we want to inspect embedding checkpoints
