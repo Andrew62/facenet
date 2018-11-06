@@ -4,14 +4,12 @@ import time
 import shutil
 import numpy as np
 import tensorflow as tf
-from utils import helper
 from triplet.data import Dataset
 from tensorflow.contrib import slim
 from triplet import train_ops, losses
 from triplet.params import ModelParams
 from triplet.preprocess import read_images
 from tensorflow.contrib.slim.python.slim.nets import inception_v3
-from classifier.loss import center_loss as center_loss_fn
 
 
 def save_train_params(args: ModelParams):
