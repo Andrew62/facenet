@@ -5,10 +5,16 @@ from utils import helper
 
 def main():
     embedding_size = 128
-    train_steps = 500000
+    train_steps = 1000000
 
-    checkpoint_dir = "checkpoints/triplet/model_{}_".format(embedding_size) + helper.get_current_timestamp(),
-    params = ModelParams(learning_rate=0.045,
+    checkpoint_dir = "checkpoints/triplet/model_{}_{}".format(embedding_size, helper.get_current_timestamp())
+
+    # continue training!
+    checkpoint_dir = "checkpoints/triplet/model_128_2018-11-05-2230"
+
+    params = ModelParams(input_faces='fixtures/train-subset-568226.json',
+                         lfw="fixtures/lfw.json",
+                         learning_rate=0.045,
                          identities_per_batch=40,
                          train_steps=train_steps,
                          checkpoint_dir=checkpoint_dir,

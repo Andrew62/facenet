@@ -35,13 +35,11 @@ def model_train(args: ModelParams):
     print("Building graph")
     graph = tf.Graph()
     with graph.as_default():
-        image_buffers_ph = tf.placeholder(tf.string, name="input_image_buffers")
-        labels_ph = tf.placeholder(tf.int32, name="labels")
+        image_paths_ph = tf.placeholder(tf.string, name="input_image_buffers")
         is_training_ph = tf.placeholder(tf.bool, name="is_training")
         global_step = tf.Variable(0)
 
-        images = read_images(image_buffers_ph, args, args.image_shape)
-        # do the network thing here
+        images = read_images(image_paths_ph, args.image_shape, is_training_ph)
         with slim.arg_scope(inception_v3.inception_v3_arg_scope(weight_decay=args.regularization_beta)):
             network_features, _ = inception_v3.inception_v3(images,
                                                             is_training=is_training_ph,
@@ -50,10 +48,6 @@ def model_train(args: ModelParams):
 
         embeddings = tf.nn.l2_normalize(network_features, axis=1, name="l2_embedding")
         triplet_loss = losses.build_loss(args, embeddings)
-        unstacked_labels = losses.unstack_triplets(labels_ph, [-1, 3, 1])
-        center_loss, face_centers = center_loss_fn(embeddings, unstacked_labels, args.center_loss_alpha,
-                                                   dataset.n_classes)
-        tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, center_loss * args.regularization_beta)
         regularization_loss = tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
         total_loss = tf.add_n([triplet_loss, regularization_loss], name="total_loss")
 
@@ -71,11 +65,9 @@ def model_train(args: ModelParams):
         tf.summary.image("input", images, max_outputs=3)
         tf.summary.scalar("Triplet_Loss", triplet_loss)
         tf.summary.scalar("Total loss", total_loss)
-        tf.summary.scalar("Center_loss", center_loss)
         tf.summary.scalar("Regularization_loss", regularization_loss)
         tf.summary.scalar("learning_rate", lr_decay)
         tf.summary.histogram("normed_embeddings", embeddings)
-        tf.summary.histogram("centers_hist", face_centers)
 
         merged_summaries = tf.summary.merge_all()
         global_init = tf.global_variables_initializer()
@@ -100,33 +92,30 @@ def model_train(args: ModelParams):
         start = time.time()
         lfw = Dataset(args.lfw, n_eval_pairs=args.n_validation)
 
-        # write this to disc early in case we want to inspect embedding checkpoints
-        helper.to_json(lfw.idx_to_name, os.path.join(args.checkpoint_dir, "idx_to_name.json"))
         print("Starting loop")
         while global_step.eval() < args.train_steps:
             try:
                 # embed and collect all current face weights
-                image_paths, classes = dataset.get_train_batch()
-                embeddings_np = train_ops.inference(image_paths, sess, embeddings, image_buffers_ph,
+                image_paths, labels = dataset.get_train_batch()
+                embeddings_np = train_ops.inference(image_paths, sess, embeddings, image_paths_ph,
                                                     is_training_ph, args.batch_size)
                 if np.any(np.isnan(embeddings_np)) or np.any(np.isinf(embeddings_np)):
                     print("NaNs or inf found in embeddings. Exiting")
                     raise ValueError("NaNs or inf found in embeddings")
 
-                triplets, triplet_ids = train_ops.get_triplets(image_paths, embeddings_np, classes)
+                triplets, _ = train_ops.get_triplets(image_paths, embeddings_np, labels)
                 n_trips = triplets.shape[0]
                 trip_step = args.batch_size - (args.batch_size % 3)
                 for idx in range(0, n_trips, trip_step):
-                    trip_buffers = helper.read_buffer_vect(triplets[idx: idx + trip_step])
                     feed_dict = {
-                        image_buffers_ph: trip_buffers,
+                        image_paths_ph: triplets[idx: idx + trip_step],
                         is_training_ph: True,
                     }
                     # should one batch through triplets be one step or should it be left like this?
-                    batch_per_sec = (time.time() - start) / global_step.eval()
                     if global_step.eval() % 100 == 0:
                         summary, _, loss, _ = sess.run([merged_summaries, train_op, total_loss, global_step_inc],
                                                        feed_dict=feed_dict)
+                        batch_per_sec = (time.time() - start) / global_step.eval()
                         summary_writer.add_summary(summary, global_step.eval())
                         print("model: {0}\tglobal step: {1:,}\t".format(os.path.basename(args.checkpoint_dir),
                                                                         global_step.eval()),
@@ -135,21 +124,21 @@ def model_train(args: ModelParams):
                         _, loss, _ = sess.run([train_op, total_loss, global_step_inc], feed_dict=feed_dict)
 
                     if loss == np.inf:  # esta no bueno!
-                        raise ValueError("Loss is inf")
+                        raise ValueError("Loss is inf: {}".format(loss))
 
-                    if global_step.eval() % 1000 == 0:
+                    if global_step.eval() % 10000 == 0:
                         saver.save(sess, os.path.join(args.checkpoint_dir, 'triplet'), global_step=global_step.eval())
-
-                        print("Evaluating")
                         start = time.time()
                         evaluation_set = lfw.get_evaluation_batch()
                         threshold, accuracy = train_ops.evaluate(sess, evaluation_set, embeddings,
-                                                                 image_buffers_ph, is_training_ph,
+                                                                 image_paths_ph, is_training_ph,
                                                                  args.batch_size, thresholds)
                         eval_summary = tf.Summary()
                         eval_summary.value.add(tag="lfw_verification_accuracy", simple_value=accuracy)
                         eval_summary.value.add(tag="lfw_verification_threshold", simple_value=threshold)
                         summary_writer.add_summary(eval_summary, global_step=global_step.eval())
+                        print("eval @{0:,} steps\taccuracy: {1:0.2%}\tthreshold: {2:0.2f}".format(global_step.eval(),
+                                                                                                  accuracy, threshold))
             except KeyboardInterrupt:
                 print("Keyboard Interrupt. Exiting.")
                 break

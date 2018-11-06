@@ -1,26 +1,25 @@
+import os
 import numpy as np
-from utils import helper
 
 
-def inference(image_paths, sess, embeddings_op, image_buffers_ph,
+def inference(image_paths, sess, embeddings_op, image_paths_ph,
               is_training_ph, batch_size):
     embeddings_np = []
     for mini_idx in range(0, image_paths.shape[0], batch_size):
         mini_batch = image_paths[mini_idx: mini_idx + batch_size]
-        mini_image_buffers = helper.read_buffer_vect(mini_batch)
         embeddings_np.append(sess.run(embeddings_op, feed_dict={
-            image_buffers_ph: mini_image_buffers,
+            image_paths_ph: mini_batch,
             is_training_ph: False,
         }))
     return np.vstack(embeddings_np)
 
 
-def evaluate(sess, validation_set, embeddings_op, image_buffers_ph,
+def evaluate(sess, validation_set, embeddings_op, image_paths_ph,
              is_training_ph, batch_size, thresholds):
     col0 = validation_set[:, 0]
     col1 = validation_set[:, 1]
     all_fps = np.hstack([col0, col1])
-    embeddings = inference(all_fps, sess, embeddings_op, image_buffers_ph, is_training_ph, batch_size)
+    embeddings = inference(all_fps, sess, embeddings_op, image_paths_ph, is_training_ph, batch_size)
     n_rows = validation_set.shape[0]
     col0_embeddings = embeddings[:n_rows, :]
     col1_embeddings = embeddings[n_rows:, :]
@@ -97,5 +96,4 @@ def get_triplets(image_paths, embeddings, class_ids, alpha=0.2):
                 neg_idx = np.random.choice(valid_negatives)
                 out_fps.extend([class_fps[anchor_idx], class_fps[pos_idx], out_of_class_fps[neg_idx]])
                 out_ids.extend([class_ids[anchor_idx], class_ids[pos_idx], class_ids[neg_idx]])
-    print("Generated {0:,} triplets".format(len(out_fps) // 3))
     return np.asarray(out_fps), np.asarray(out_ids)

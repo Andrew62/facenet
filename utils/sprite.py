@@ -39,3 +39,4 @@ def sprite_metadata(names, out_f):
     with open(out_f, "w") as target:
         for name in names:
             target.write("{0}\n".format(name))
+

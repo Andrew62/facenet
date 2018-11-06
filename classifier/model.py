@@ -28,7 +28,7 @@ def train(args: ClassificationArgs):
     print("Building graph")
     graph = tf.Graph()
     with graph.as_default():
-        dataset_iterator = make_dataset([args.train_csv], image_size=args.image_shape, batch_size=args.batch_size)
+        dataset_iterator = make_dataset(args.train_csvs, image_size=args.image_shape, batch_size=args.batch_size)
         labels, images = dataset_iterator.get_next()
 
         is_training_ph = tf.placeholder(tf.bool, name="is_training")
