@@ -9,10 +9,11 @@ def main():
 
     checkpoint_dir = "checkpoints/triplet/model_{}_{}".format(embedding_size, helper.get_current_timestamp())
 
-    # continue training!
-    checkpoint_dir = "checkpoints/triplet/model_128_2018-11-05-2230"
+    small_train = 'fixtures/train-subset-568226.json'
 
-    params = ModelParams(input_faces='fixtures/train-subset-568226.json',
+    big_train = "fixtures/train-2876510.json"
+
+    params = ModelParams(input_faces=big_train,
                          lfw="fixtures/lfw.json",
                          learning_rate=0.045,
                          identities_per_batch=40,

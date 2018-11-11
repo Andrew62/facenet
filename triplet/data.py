@@ -72,5 +72,5 @@ class Dataset(object):
             idx = random.randint(0, len(self.eval_fps) - 1)
             out_fps.append(self.eval_fps.pop(idx))
             if len(self.eval_fps) == 0:
-                break
+                self.generate_val()
         return np.asarray(out_fps)
