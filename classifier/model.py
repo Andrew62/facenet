@@ -4,10 +4,11 @@ import shutil
 import numpy as np
 import tensorflow as tf
 from utils import helper
+from .lfw_eval import lfw_eval
 from tensorflow.contrib import slim
 from .data_stream import make_dataset
-from .classification_args import ClassificationArgs
 from .loss import center_loss as cls_center_loss
+from .classification_args import ClassificationArgs
 from tensorflow.contrib.slim.python.slim.nets import inception_v3
 
 
@@ -28,11 +29,17 @@ def train(args: ClassificationArgs):
     print("Building graph")
     graph = tf.Graph()
     with graph.as_default():
-        dataset_iterator = make_dataset(args.train_csvs, image_size=args.image_shape, batch_size=args.batch_size)
-        labels, images = dataset_iterator.get_next()
-
-        is_training_ph = tf.placeholder(tf.bool, name="is_training")
         global_step = tf.Variable(0)
+        is_training_ph = tf.placeholder(tf.bool, name="is_training")
+
+        dataset_iterator = make_dataset(
+            args.train_csvs, 
+            image_size=args.image_shape, 
+            batch_size=args.batch_size,
+            epochs=args.epochs,
+            is_training=is_training_ph
+        )
+        labels, images = dataset_iterator.get_next()
 
         # do the network thing here
         with slim.arg_scope(inception_v3.inception_v3_arg_scope(weight_decay=args.regularization_beta)):
@@ -48,9 +55,9 @@ def train(args: ClassificationArgs):
             logits = slim.fully_connected(network_features, args.num_classes, activation_fn=None,
                                           weights_initializer=tf.contrib.layers.xavier_initializer())
 
-        embeddings = tf.nn.l2_normalize(network_features, axis=1, name="l2_embedding")
+        embeddings = tf.nn.l2_normalize(network_features, axis=1, name=args.output_node_name)
         center_loss, face_centers = cls_center_loss(embeddings, labels, args.center_loss_alpha, args.num_classes)
-        tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, center_loss * args.regularization_beta)
+        tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, center_loss * args.center_loss_reg_beta)
         pred = tf.argmax(logits, axis=1, name='predictions')
         class_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits))
 
@@ -58,7 +65,8 @@ def train(args: ClassificationArgs):
         total_loss = tf.add_n([class_loss, regularization_loss], name="total_loss")
 
         # decay every 2 epochs
-        lr_decay = tf.train.exponential_decay(args.learning_rate, global_step, decay_steps=2 * steps_per_epoch,
+        lr_decay = tf.train.exponential_decay(args.learning_rate, global_step,
+                                              decay_steps=int(args.decay_epochs * steps_per_epoch),
                                               decay_rate=0.94)
 
         # explicitly calculate gradients to use clipping per inceptionv3 paper
@@ -71,7 +79,7 @@ def train(args: ClassificationArgs):
         with tf.name_scope("train"):
             train_acc = tf.reduce_mean(tf.cast(tf.equal(pred, labels), dtype=tf.float32))
 
-        tf.summary.scalar("Classification Accuracy", train_acc)
+        tf.summary.scalar("Classification_Accuracy", train_acc)
         tf.summary.scalar("Regularization_loss", regularization_loss)
         tf.summary.scalar("Total_loss", total_loss)
         tf.summary.scalar("Softmax_loss", class_loss)
@@ -92,32 +100,32 @@ def train(args: ClassificationArgs):
     config.gpu_options.allow_growth = True
     with tf.Session(graph=graph, config=config).as_default() as sess:
         summary_writer = tf.summary.FileWriter(args.checkpoint_dir)
-
-        var_list = graph.get_collection("variables")
+        feed_dict = {
+            is_training_ph: True
+        }
+        var_list = graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
         saver = tf.train.Saver(var_list=var_list)
         latest_checkpoint = tf.train.latest_checkpoint(args.checkpoint_dir)
         if latest_checkpoint:
             print("Restoring from " + latest_checkpoint)
             saver.restore(sess, latest_checkpoint)
-            sess.run([local_init, dataset_iterator.initializer])
+            sess.run([local_init, dataset_iterator.initializer], feed_dict=feed_dict)
         else:
             print("Initializing!")
-            sess.run([global_init, local_init, dataset_iterator.initializer])
+            sess.run([global_init, local_init, dataset_iterator.initializer], feed_dict=feed_dict)
         start = time.time()
         try:
             while True:
                 try:
-                    feed_dict = {
-                        is_training_ph: True
-                    }
                     if global_step.eval() % 100 == 0:
                         ops_to_run = [merged_summaries, train_op, total_loss, global_step_inc]
                         summary, _, loss, _ = sess.run(ops_to_run, feed_dict=feed_dict)
 
                         summary_writer.add_summary(summary, global_step.eval())
                         batch_per_sec = (time.time() - start) / global_step.eval()
-                        print("model: {0}\tglobal step: {1:,}\t".format(os.path.basename(args.checkpoint_dir),
-                                                                        global_step.eval()),
+                        print("model: {0}\tepoch: {1:,}\tglobal step: {2:,}\t".format(os.path.basename(args.checkpoint_dir),
+                                                                                     (global_step.eval() // steps_per_epoch) + 1,
+                                                                                      global_step.eval()),
                               "loss: {0:0.5f}\tstep/sec: {1:0.2f}".format(loss, batch_per_sec))
                     else:
                         ops_to_run = [global_step_inc, train_op, total_loss]
@@ -130,6 +138,11 @@ def train(args: ClassificationArgs):
                         print("Check pointing")
                         saver.save(sess, os.path.join(args.checkpoint_dir, 'facenet_classifier'),
                                    global_step=global_step.eval())
+
+                        print("Starting async LFW eval")
+                        # async run lfw verification on CPU
+                        lfw_eval(args.lfw_fp, args.checkpoint_dir, args.input_node_name, args.output_node_name,
+                                 args.batch_size, args.embedding_size, global_step.eval(), args.image_shape)
                 except tf.errors.OutOfRangeError:
                     break
 

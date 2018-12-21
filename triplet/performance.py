@@ -3,8 +3,8 @@ import numpy as np
 
 
 def accuracy(pred, true_labels):
-    correct = (pred == true_labels).sum()
-    return correct / pred.shape[0]
+    # these are binary soooo this should work
+    return (pred == true_labels).mean()
 
 
 def optimal_threshold(l2_dists, true_labels, thresholds=np.arange(0.1, 4, 0.01)):
@@ -16,6 +16,7 @@ def optimal_threshold(l2_dists, true_labels, thresholds=np.arange(0.1, 4, 0.01))
         if acc > best_accuracy:
             best_threshold = threshold
             best_accuracy = acc
+        print(threshold, acc)
     return best_threshold, best_accuracy
 
 

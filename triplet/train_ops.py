@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from classifier.lfw_eval import gen_pairs
 
 
 def inference(image_paths, sess, embeddings_op, image_paths_ph,
@@ -14,17 +15,11 @@ def inference(image_paths, sess, embeddings_op, image_paths_ph,
     return np.vstack(embeddings_np)
 
 
-def evaluate(sess, validation_set, embeddings_op, image_paths_ph,
+def evaluate(sess, file_paths, class_ids, embeddings_op, image_paths_ph,
              is_training_ph, batch_size, thresholds):
-    col0 = validation_set[:, 0]
-    col1 = validation_set[:, 1]
-    all_fps = np.hstack([col0, col1])
-    embeddings = inference(all_fps, sess, embeddings_op, image_paths_ph, is_training_ph, batch_size)
-    n_rows = validation_set.shape[0]
-    col0_embeddings = embeddings[:n_rows, :]
-    col1_embeddings = embeddings[n_rows:, :]
-    l2_dist = l2_squared_distance(col0_embeddings, col1_embeddings, axis=1)
-    true_labels = validation_set[:, -1].astype(np.int)
+    embeddings = inference(file_paths, sess, embeddings_op, image_paths_ph, is_training_ph, batch_size)
+    embed1, embed2, true_labels = gen_pairs(embeddings, class_ids)
+    l2_dist = l2_squared_distance(embed1, embed2, axis=1)
     threshold, acc = optimal_threshold(l2_dist, true_labels, thresholds=thresholds)
     return threshold, acc
 

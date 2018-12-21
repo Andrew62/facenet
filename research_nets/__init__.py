@@ -1,0 +1,1 @@
+from .inception_resnet_v2 import inception_resnet_v2, inception_resnet_v2_arg_scope

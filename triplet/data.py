@@ -2,7 +2,6 @@
 import random
 import numpy as np
 from utils import helper
-from itertools import combinations
 
 
 class Dataset(object):
@@ -41,6 +40,9 @@ class Dataset(object):
         return np.asarray(out_fps), np.asarray(out_ids)
 
     def get_all_files(self):
+        """
+        :return: [file paths], [class ids]
+        """
         out_fps = []
         out_ids = []
         for cidx, file_paths in self.class_data.items():
@@ -49,28 +51,3 @@ class Dataset(object):
                 out_ids.append(cidx)
         return out_fps, out_ids
 
-    def generate_val(self):
-        for iden1, image_fps in self.class_data.items():
-            all_negatives = []
-            for iden2, neg_fps in self.class_data.items():
-                if iden2 == iden1:
-                    continue
-                all_negatives.extend(neg_fps)
-            for fp1, fp2 in combinations(image_fps, 2):
-                self.eval_fps.append([fp1, fp2, 1])
-            for fp in image_fps:
-                neg = random.choice(all_negatives)
-                self.eval_fps.append([fp, neg, 0])
-
-    def get_evaluation_batch(self, **kwargs):
-        n_images_per = kwargs.pop("n_eval_pairs", self.n_eval_pairs)
-        if len(self.eval_fps) == 0:
-            self.generate_val()
-        random.shuffle(self.eval_fps)
-        out_fps = []
-        for _ in range(n_images_per):
-            idx = random.randint(0, len(self.eval_fps) - 1)
-            out_fps.append(self.eval_fps.pop(idx))
-            if len(self.eval_fps) == 0:
-                self.generate_val()
-        return np.asarray(out_fps)

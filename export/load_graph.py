@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 
-def load_graph(frozen_graph_filename):
+def load_graph(frozen_graph_filename, name=""):
     # We load the protobuf file from the disk and parse it to retrieve the
     # unserialized graph_def
     with tf.gfile.GFile(frozen_graph_filename, "rb") as f:
@@ -12,5 +12,5 @@ def load_graph(frozen_graph_filename):
     with tf.Graph().as_default() as graph:
         # The name var will prefix every op/nodes in your graph
         # Since we load everything in a new graph, this is not needed
-        tf.import_graph_def(graph_def, name="prefix")
+        tf.import_graph_def(graph_def, name=name)
     return graph

@@ -9,7 +9,8 @@ from tensorflow.contrib import slim
 from triplet import train_ops, losses
 from triplet.params import ModelParams
 from triplet.preprocess import read_images
-from tensorflow.contrib.slim.python.slim.nets import inception_v3
+# from tensorflow.contrib.slim.python.slim.nets import inception_v3
+from research_nets import inception_resnet_v2_arg_scope, inception_resnet_v2
 
 
 def save_train_params(args: ModelParams):
@@ -23,7 +24,7 @@ def save_train_params(args: ModelParams):
 
 
 def model_train(args: ModelParams):
-    thresholds = np.arange(0, 4, 0.1)
+    thresholds = np.arange(0.1, 4, 0.1)
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     dataset = Dataset(args.input_faces,
                       n_identities_per=args.identities_per_batch,
@@ -38,11 +39,11 @@ def model_train(args: ModelParams):
         global_step = tf.Variable(0)
 
         images = read_images(image_paths_ph, args.image_shape, is_training_ph)
-        with slim.arg_scope(inception_v3.inception_v3_arg_scope(weight_decay=args.regularization_beta)):
-            network_features, _ = inception_v3.inception_v3(images,
-                                                            is_training=is_training_ph,
-                                                            num_classes=args.embedding_size,
-                                                            dropout_keep_prob=args.drop_out)
+        with slim.arg_scope(inception_resnet_v2_arg_scope(weight_decay=args.regularization_beta)):
+            network_features, _ = inception_resnet_v2(images,
+                                                      is_training=is_training_ph,
+                                                      num_classes=args.embedding_size,
+                                                      dropout_keep_prob=args.drop_out)
 
         embeddings = tf.nn.l2_normalize(network_features, axis=1, name="l2_embedding")
         triplet_loss = losses.build_loss(args, embeddings)
@@ -76,7 +77,7 @@ def model_train(args: ModelParams):
     config.gpu_options.allow_growth = True
     with tf.Session(graph=graph, config=config).as_default() as sess:
         summary_writer = tf.summary.FileWriter(args.checkpoint_dir)
-        var_list = graph.get_collection("variables")
+        var_list = graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
         saver = tf.train.Saver(var_list=var_list)
         latest_checkpoint = tf.train.latest_checkpoint(args.checkpoint_dir)
         if latest_checkpoint:
@@ -88,7 +89,10 @@ def model_train(args: ModelParams):
             sess.run([global_init, local_init])
 
         start = time.time()
-        lfw = Dataset(args.lfw, n_eval_pairs=args.n_validation)
+        lfw = Dataset(args.lfw)
+        file_paths, class_ids = lfw.get_all_files()
+        class_ids = np.array(class_ids)
+        file_paths = np.array(file_paths)
 
         print("Starting loop")
         while global_step.eval() < args.train_steps:
@@ -127,8 +131,8 @@ def model_train(args: ModelParams):
                     if global_step.eval() % 10000 == 0:
                         saver.save(sess, os.path.join(args.checkpoint_dir, 'triplet'), global_step=global_step.eval())
                         start = time.time()
-                        evaluation_set = lfw.get_evaluation_batch()
-                        threshold, accuracy = train_ops.evaluate(sess, evaluation_set, embeddings,
+
+                        threshold, accuracy = train_ops.evaluate(sess, file_paths, class_ids, embeddings,
                                                                  image_paths_ph, is_training_ph,
                                                                  args.batch_size, thresholds)
                         eval_summary = tf.Summary()

@@ -21,3 +21,11 @@ class ClassificationArgs(object):
         self.epochs = kwargs.pop("epochs", 90)
         self.learning_rate = kwargs.pop("learning_rate", 0.045)
         self.regularization_beta = kwargs.pop("reg_beta", 4e-5)
+        self.decay_epochs = kwargs.pop("decay_epochs", 2)
+
+        self.center_loss_reg_beta = kwargs.pop("center_loss_reg_beta", self.regularization_beta)
+
+        self.lfw_fp = kwargs.pop("lfw_json")
+
+        self.input_node_name = kwargs.pop("input_node_name", "input_image_buffers")
+        self.output_node_name = kwargs.pop("output_node_name", 'l2_embedding')

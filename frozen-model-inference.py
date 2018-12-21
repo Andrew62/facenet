@@ -24,10 +24,10 @@ def main():
     parser.add_argument("-m", "--model", help="path to frozen graph pbtext", type=str, required=True)
     parser.add_argument("-i", "--images", help="text file with paths to images", type=str, required=True)
     parser.add_argument("-o", "--output-file", help="path to output npz file", type=str, required=True)
-    parser.add_argument("--input-op-name", help="name of input op, ex 'prefix/input_image_buffers:0'",
-                        type=str, default="prefix/input_image_buffers:0")
-    parser.add_argument("--output-op-name", help="name of the output op. ex 'prefix/l2_embedding:0'",
-                        type=str, default='prefix/l2_embedding:0')
+    parser.add_argument("--input-op-name", help="name of input op, ex 'input_image_buffers:0'",
+                        type=str, default="input_image_buffers:0")
+    parser.add_argument("--output-op-name", help="name of the output op. ex 'l2_embedding:0'",
+                        type=str, default='l2_embedding:0')
 
     args = parser.parse_args()
     graph = load_graph(args.model)
