@@ -11,3 +11,4 @@ Dockerfile.*
 notebooks/
 .vscode/
 data_prep/
+*.pyc
